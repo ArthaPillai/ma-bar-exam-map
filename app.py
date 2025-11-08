@@ -1,5 +1,5 @@
 # -------------------------------------------------
-# app.py  –  Streamlit + Folium (one legend, download button, fast zoom)
+# app.py  –  Streamlit + Folium
 # -------------------------------------------------
 import streamlit as st
 import pandas as pd
@@ -48,7 +48,7 @@ agg = (
 zip_info = agg.set_index("zip").to_dict(orient="index")
 
 # ---------------------------
-# 3. Load & cache the GeoJSON (once per session)
+# 3. Load & cache the GeoJSON
 # ---------------------------
 @st.cache_data
 def load_geojson():
@@ -75,7 +75,7 @@ for f in geojson_data["features"]:
     f["properties"]["tooltip"] = html
 
 # ---------------------------
-# 5. Build the Folium map (NO @st.cache_data!)
+# 5. Build the Folium map
 # ---------------------------
 def build_map() -> folium.Map:
     m = folium.Map(
@@ -102,7 +102,7 @@ def build_map() -> folium.Map:
         show=True,
     ).add_to(m)
 
-    # Remove Folium’s auto‑legend (the “color_map_…” child)
+    # Remove Folium’s auto‑legend
     for key in list(ch._children):
         if key.startswith("color_map"):
             del ch._children[key]
@@ -147,7 +147,7 @@ def build_map() -> folium.Map:
 
     return m
 
-# Build the map (executed on every interaction – fast because data is cached)
+# Build the map
 m = build_map()
 
 # ---------------------------

@@ -19,7 +19,7 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-st.title("Massachusetts Bar Exam Takers by ZIP (July 2025)")
+st.title("Massachusetts Bar Examinees (July 2025)")
 st.markdown("Hover for ZIP, area, and examinee count.")
 
 # ---------------------------

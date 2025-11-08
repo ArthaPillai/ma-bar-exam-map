@@ -13,18 +13,18 @@ st.title("Massachusetts Bar Exam Takers by ZIP (July 2025)")
 st.markdown("Hover for ZIP, area, and examinee count.")
 
 # ---------------------------
-# Load your data (from local CSV in the repo)
+# Load data (cached)
 # ---------------------------
-@st.cache_data  # Cache for faster reloads
+@st.cache_data
 def load_data():
-    data = pd.read_csv("data-ROBeC.csv")  # Assumes CSV is in the same repo folder
+    data = pd.read_csv("data-ROBeC.csv")
     data["zip"] = data["zip"].astype(str).str.zfill(5)
     return data
 
 data = load_data()
 
 # ---------------------------
-# Handle duplicate ZIPs
+# Aggregate ZIPs
 # ---------------------------
 agg = (
     data.groupby("zip")
@@ -38,7 +38,7 @@ agg = (
 zip_info = agg.set_index("zip").to_dict(orient="index")
 
 # ---------------------------
-# Load Massachusetts ZIP GeoJSON
+# Load GeoJSON (cached)
 # ---------------------------
 @st.cache_data
 def load_geojson():
@@ -48,7 +48,7 @@ def load_geojson():
 geojson_data = load_geojson()
 
 # ---------------------------
-# Add hover tooltips to GeoJSON features
+# Add tooltips to GeoJSON
 # ---------------------------
 for feature in geojson_data["features"]:
     zip_code = feature["properties"]["ZCTA5CE10"]
@@ -65,13 +65,11 @@ for feature in geojson_data["features"]:
     feature["properties"]["tooltip"] = tooltip_html
 
 # ---------------------------
-# Create the Folium map
+# Create map — DO NOT CACHE THIS!
 # ---------------------------
-@st.cache_data
 def create_map():
     m = folium.Map(location=[42.1, -71.5], zoom_start=8, tiles="cartodbpositron")
 
-    # Create choropleth (with legend_name, but we'll remove the auto legend)
     choropleth = folium.Choropleth(
         geo_data=geojson_data,
         data=agg,
@@ -86,12 +84,12 @@ def create_map():
         show=True
     ).add_to(m)
 
-    # Remove the auto-generated legend (color_map child)
+    # Remove auto legend
     for key in choropleth._children:
         if key.startswith('color_map'):
             del choropleth._children[key]
 
-    # Add tooltip to choropleth's GeoJson
+    # Add tooltip
     choropleth.geojson.add_child(
         folium.features.GeoJsonTooltip(
             fields=["tooltip"],
@@ -110,7 +108,7 @@ def create_map():
         )
     )
 
-    # Add one custom legend (with bins)
+    # Add custom legend
     bins = [0, 1, 2, 5, 10, 20, 50, agg['examinees'].max()]
     colormap = LinearColormap(
         colors=['#ffffb2', '#fed976', '#feb24c', '#fd8d3c', '#fc4e2a', '#e31a1c', '#bd0026', '#800026'],
@@ -122,9 +120,10 @@ def create_map():
 
     return m
 
+# Build map (no caching!)
 m = create_map()
 
 # ---------------------------
-# Display the interactive map in Streamlit
+# Display map
 # ---------------------------
 st_folium(m, width=1100, height=800, use_container_width=True)

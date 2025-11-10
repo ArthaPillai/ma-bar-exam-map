@@ -565,13 +565,24 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool) -> leafmap.M
                     }
                 })
 
+            # FIXED: Use style_callback to dynamically set marker color from properties
+            def station_style(feature):
+                return {
+                    "color": feature["properties"]["color"],
+                    "radius": 6,
+                    "fillColor": feature["properties"]["color"],
+                    "fillOpacity": 0.8,
+                    "weight": 1.5,
+                    "color": "white",  # Border
+                }
+
             m.add_geojson(
                 {
                     "type": "FeatureCollection",
                     "features": station_features
                 },
                 layer_name="MBTA Stations",
-                style={"color": "color", "radius": 6, "fillOpacity": 0.8, "weight": 1.5, "color": "white"},
+                style=station_style,  # FIXED: Use callback instead of dict with property ref
                 info_mode="on_click",
                 fields=["name", "line"],
                 aliases=["Station", "Line"]

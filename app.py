@@ -200,7 +200,6 @@ geojson_data = load_geojson()
 # Build Map using Leafmap
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict) -> leafmap.Map:
-    """Builds an interactive choropleth map with hover tooltips."""
     m = leafmap.Map(
         center=[42.1, -71.7],
         zoom=8,
@@ -209,17 +208,19 @@ def build_map(agg_df: pd.DataFrame, geojson: dict) -> leafmap.Map:
         measure_control=False,
     )
 
-    # ---- Color scale -------------------------------------------------
+    # ---- DYNAMIC colour scale -----------------------------------------
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
+    if max_val == min_val:               # protect against flat data
+        max_val = min_val + 1
     colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
     colormap.caption = "Number of Examinees"
     colormap.add_to(m)
 
-    # ---- Lookup dict -------------------------------------------------
+    # ---- Lookup dict ---------------------------------------------------
     value_dict = agg_df.set_index("zip").to_dict(orient="index")
 
-    # ---- Style function -----------------------------------------------
+    # ---- Style function ------------------------------------------------
     def style_function(feature):
         zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         val = value_dict.get(zip_code, {}).get("count", 0)
@@ -230,7 +231,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict) -> leafmap.Map:
             "fillOpacity": 0.7,
         }
 
-    # ---- Add tooltip properties ---------------------------------------
+    # ---- Tooltip properties (unchanged) --------------------------------
     for feature in geojson["features"]:
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if z in value_dict:
@@ -245,7 +246,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict) -> leafmap.Map:
             feature["properties"]["Sub_Area"] = "-"
             feature["properties"]["Examinees"] = 0
 
-    # ---- Add choropleth -----------------------------------------------
+    # ---- Add choropleth ------------------------------------------------
     m.add_geojson(
         geojson,
         style_function=style_function,
@@ -254,9 +255,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict) -> leafmap.Map:
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
 
-    # ---- Layer control (optional) ------------------------------------
     m.add_layer_control()
-
     return m
 
 
@@ -265,4 +264,4 @@ def build_map(agg_df: pd.DataFrame, geojson: dict) -> leafmap.Map:
 # ---------------------------------------------------------
 with st.spinner(f"Loading {selected_layer} map…"):
     m = build_map(agg, geojson_data)
-    m.to_streamlit(width=1500, height=800)
+    m.to_streamlit(width=1500, height=700)

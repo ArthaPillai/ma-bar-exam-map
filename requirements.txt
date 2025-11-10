@@ -4,3 +4,4 @@ pandas
 requests
 branca
 streamlit-folium
+pyproj

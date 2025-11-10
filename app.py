@@ -341,12 +341,11 @@ import json
 import pyproj
 
 # ---------------------------------------------------------
-# Coordinate transformer: EPSG:26986 (MA State Plane) → EPSG:4326 (WGS84)
+# Coordinate transformer: EPSG:26986 → WGS84 (lon/lat)
 # ---------------------------------------------------------
 transformer = pyproj.Transformer.from_crs("EPSG:26986", "EPSG:4326", always_xy=True)
 
 def transform_coords(x, y):
-    """Convert Massachusetts State Plane (ft) → WGS84 (lon/lat)"""
     lon, lat = transformer.transform(x, y)
     return [lon, lat]
 
@@ -356,7 +355,7 @@ def transform_coords(x, y):
 st.set_page_config(page_title="Massachusetts Bar Examinee Map", layout="wide")
 
 # ---------------------------------------------------------
-# MBTA subway-served ZIP codes (Greater Boston focus)
+# MBTA subway ZIP codes
 # ---------------------------------------------------------
 MBTA_ZIPS = {
     "02108", "02109", "02110", "02111", "02113", "02114", "02115", "02116",
@@ -369,7 +368,7 @@ MBTA_ZIPS = {
 }
 
 # ---------------------------------------------------------
-# Sidebar – Layer selector
+# Sidebar Controls
 # ---------------------------------------------------------
 layer_options = {
     "All years": "map_data_all.csv",
@@ -377,53 +376,35 @@ layer_options = {
     "2024": "map_data_2024.csv",
     "2023": "map_data_2023.csv",
 }
-selected_layer = st.sidebar.selectbox(
-    "Select data layer",
-    options=list(layer_options.keys()),
-    index=0,
-)
+selected_layer = st.sidebar.selectbox("Select data layer", options=list(layer_options.keys()), index=0)
 
-# ---------------------------------------------------------
-# Sidebar – View selector
-# ---------------------------------------------------------
-view_mode = st.sidebar.radio(
-    "Map view",
-    options=["State-wide", "Greater Boston (MBTA subway)"],
-    index=0,
-)
+view_mode = st.sidebar.radio("Map view", ["State-wide", "Greater Boston (MBTA subway)"], index=0)
 
 # ---------------------------------------------------------
 # Dynamic Title
 # ---------------------------------------------------------
 title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
 st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
-st.markdown(
-    f"**Current view:** *{view_mode}*  |  **Data:** *{title_suffix}*  \n"
-    "Hover over any area to view ZIP Code, Area, Sub-Area, and number of Examinees."
-)
+st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}*  \nHover over ZIPs. Click stations for details.")
 
 # ---------------------------------------------------------
-# Load Examinee Data (cached per file)
+# Load Examinee Data
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_examinee_data(csv_name: str) -> pd.DataFrame:
     df = pd.read_csv(csv_name, dtype={"zip": str})
     df["zip"] = df["zip"].str.zfill(5)
-    agg = (
-        df.groupby("zip")
-        .agg(
-            area=("area", lambda x: ", ".join(sorted(set(x)))),
-            sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
-            count=("examinees", "sum"),
-        )
-        .reset_index()
-    )
+    agg = df.groupby("zip").agg(
+        area=("area", lambda x: ", ".join(sorted(set(x)))),
+        sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
+        count=("examinees", "sum"),
+    ).reset_index()
     return agg
 
 agg = load_examinee_data(layer_options[selected_layer])
 
 # ---------------------------------------------------------
-# Load Massachusetts ZIP Code GeoJSON (cached once)
+# Load MA ZIP GeoJSON
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_geojson():
@@ -435,33 +416,27 @@ def load_geojson():
 geojson_data = load_geojson()
 
 # ---------------------------------------------------------
-# Build Map with MBTA lines & stations (from local MassGIS files)
+# Build Map
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool) -> leafmap.Map:
-    # Base map – zoom/center changes with mode
-    center = [42.3601, -71.0589]  # Downtown Boston
-    zoom = 11 if mbta_mode else 8
     m = leafmap.Map(
-        center=center,
-        zoom=zoom,
+        center=[42.3601, -71.0589],
+        zoom=11 if mbta_mode else 8,
         locate_control=False,
         draw_control=False,
         measure_control=False,
     )
 
-    # ---- Dynamic color scale -----------------------------------------
+    # Color scale
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
-    if max_val == min_val:
-        max_val = min_val + 1
+    if max_val == min_val: max_val = min_val + 1
     colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
     colormap.caption = "Number of Examinees"
     colormap.add_to(m)
 
-    # ---- Lookup dict ---------------------------------------------------
     value_dict = agg_df.set_index("zip").to_dict(orient="index")
 
-    # ---- Style function (mask non-MBTA ZIPs) ---------------------------
     def style_function(feature):
         zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if mbta_mode and zip_code not in MBTA_ZIPS:
@@ -474,26 +449,20 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool) -> leafmap.M
             "fillOpacity": 0.7,
         }
 
-    # ---- Tooltip properties --------------------------------------------
     for feature in geojson["features"]:
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if z in value_dict:
             i = value_dict[z]
             feature["properties"].update({
-                "ZIP Code": z,
-                "Area": i["area"],
-                "Sub_Area": i["sub_area"],
-                "Examinees": i["count"]
+                "ZIP Code": z, "Area": i["area"],
+                "Sub_Area": i["sub_area"], "Examinees": i["count"]
             })
         else:
             feature["properties"].update({
-                "ZIP Code": z,
-                "Area": "No data",
-                "Sub_Area": "-",
-                "Examinees": 0
+                "ZIP Code": z, "Area": "No data",
+                "Sub_Area": "-", "Examinees": 0
             })
 
-    # ---- Add ZIP choropleth --------------------------------------------
     m.add_geojson(
         geojson,
         style_function=style_function,
@@ -503,51 +472,47 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool) -> leafmap.M
     )
 
     # ---------------------------------------------------------
-    # ADD MBTA SUBWAY LINES & STATIONS (only in Greater Boston mode)
+    # ADD MBTA LINES & STATIONS (only in MBTA mode)
     # ---------------------------------------------------------
     if mbta_mode:
-        line_colors = {
-            "RED": "#DA291C",
-            "ORANGE": "#ED8B00",
-            "BLUE": "#003DA5",
-            "GREEN": "#00843D",
-            "SILVER": "#8D8D8D",
-        }
+        line_colors = {"RED": "#DA291C", "ORANGE": "#ED8B00", "BLUE": "#003DA5", "GREEN": "#00843D", "SILVER": "#8D8D8D"}
 
-        # === Load and project MBTA_ARC.json (lines) ===
+        # === LINES: GISDATA.MBTA_ARC.json ===
         try:
             with open("GISDATA.MBTA_ARC.json", "r", encoding="utf-8") as f:
-                arcs = json.load(f)
+                arcs = json.load(f)  # ← FIXED: json.load() returns dict
 
             for feat in arcs["features"]:
                 line_type = feat["properties"].get("line", "").upper()
-                if line_type in line_colors:
-                    coords = feat["geometry"]["coordinates"]
-                    # Handle both LineString and MultiLineString
-                    if feat["geometry"]["type"] == "LineString":
-                        projected = [transform_coords(x, y) for x, y in coords]
-                        feat["geometry"]["coordinates"] = projected
-                    elif feat["geometry"]["type"] == "MultiLineString":
-                        projected = [
-                            [transform_coords(x, y) for x, y in line]
-                            for line in coords
-                        ]
-                        feat["geometry"]["coordinates"] = projected
+                if line_type not in line_colors:
+                    continue
 
-                    m.add_geojson(
-                        feat,
-                        style={"color": line_colors[line_type], "weight": 4, "opacity": 0.9},
-                        layer_name=f"{line_type} Line",
-                    )
+                coords = feat["geometry"]["coordinates"]
+                geom_type = feat["geometry"]["type"]
+
+                # Reproject coordinates
+                if geom_type == "LineString":
+                    projected = [transform_coords(x, y) for x, y in coords]
+                    feat["geometry"]["coordinates"] = projected
+                elif geom_type == "MultiLineString":
+                    projected = [[transform_coords(x, y) for x, y in line] for line in coords]
+                    feat["geometry"]["coordinates"] = projected
+
+                m.add_geojson(
+                    feat,
+                    style={"color": line_colors[line_type], "weight": 4, "opacity": 0.9},
+                    layer_name=f"{line_type} Line"
+                )
         except Exception as e:
-            st.warning(f"MBTA lines failed to load: {e}")
+            st.warning(f"MBTA lines failed: {e}")
 
-        # === Load and project MBTA_NODE.json (stations) ===
+        # === STATIONS: GISDATA.MBTA_NODE.json ===
         try:
             with open("GISDATA.MBTA_NODE.json", "r", encoding="utf-8") as f:
-                nodes = json.load(f)
+                nodes = json.load(f)  # ← FIXED: json.load()
 
-            station_features = []
+            station_geojson = {"type": "FeatureCollection", "features": []}
+
             for feat in nodes["features"]:
                 x, y = feat["geometry"]["coordinates"]
                 lon, lat = transform_coords(x, y)
@@ -555,49 +520,41 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool) -> leafmap.M
                 line = feat["properties"].get("line", "").upper()
                 color = line_colors.get(line, "#333333")
 
-                station_features.append({
+                station_geojson["features"].append({
                     "type": "Feature",
                     "geometry": {"type": "Point", "coordinates": [lon, lat]},
-                    "properties": {
-                        "name": station,
-                        "line": line,
-                        "color": color
-                    }
+                    "properties": {"name": station, "line": line, "color": color}
                 })
 
-            # FIXED: Use style_callback to dynamically set marker color from properties
+            # FIXED: Use style_callback for dynamic color
             def station_style(feature):
                 return {
-                    "color": feature["properties"]["color"],
-                    "radius": 6,
                     "fillColor": feature["properties"]["color"],
-                    "fillOpacity": 0.8,
+                    "color": "white",
                     "weight": 1.5,
-                    "color": "white",  # Border
+                    "radius": 6,
+                    "fillOpacity": 0.8
                 }
 
             m.add_geojson(
-                {
-                    "type": "FeatureCollection",
-                    "features": station_features
-                },
+                station_geojson,
                 layer_name="MBTA Stations",
-                style=station_style,  # FIXED: Use callback instead of dict with property ref
+                style_callback=station_style,  # ← CORRECT
                 info_mode="on_click",
                 fields=["name", "line"],
                 aliases=["Station", "Line"]
             )
         except Exception as e:
-            st.warning(f"MBTA stations failed to load: {e}")
+            st.warning(f"MBTA stations failed: {e}")
 
     m.add_layer_control()
     return m
 
 # ---------------------------------------------------------
-# Render the Map
+# Render Map
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 
-with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
+with st.spinner(f"Loading {selected_layer} – {view_mode}..."):
     m = build_map(agg, geojson_data, mbta_mode)
     m.to_streamlit(width=1500, height=800)

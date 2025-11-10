@@ -1,0 +1,301 @@
+zip,area,sub_area,examinees
+02135,Brighton,Brighton Center,85
+02446,Brookline,Coolidge Corner,41
+02116,Boston,Back Bay,31
+02138,Cambridge,Cambridgeport,30
+02114,Boston,West End,29
+02134,Boston,Allston Village,25
+02128,Boston,East Boston,25
+02127,Boston,South Boston,24
+02113,Boston,North End,21
+02118,Boston,South End,18
+02130,Boston,Jamaica Plain,18
+02115,Boston,The Fenway,17
+02445,Brookline,Brookline Village,16
+02155,Medford,Medford Hillside,16
+02139,Cambridge,Central Square,16
+02215,Boston,Kenmore,15
+02143,Somerville,Inman Square,14
+02169,Quincy,Quincy Center,13
+02144,Somerville,Davis Square,12
+02125,Boston,Uphams Corner,11
+02145,Somerville,Winter Hill,10
+02148,Malden,Malden Center,10
+02472,Watertown,Watertown Square,10
+01545,Shrewsbury,Shrewsbury Center,9
+02108,Boston,Beacon Hill,9
+02124,Boston,Codman Square,9
+02140,Cambridge,North Cambridge,9
+02149,Everett,Everett Square,9
+02151,Revere,Revere Beach,9
+02720,Fall River,Fall River North,9
+02111,Boston,Chinatown,8
+02141,Cambridge,East Cambridge,8
+02152,Winthrop,Winthrop Center,8
+02171,Quincy,North Quincy,8
+02026,Dedham,Dedham Center,7
+02129,Boston,Charlestown,7
+02210,Boston,Seaport,7
+02453,Waltham,Waltham South,7
+02474,Arlington,Arlington Heights,7
+01915,Beverly,Beverly Farms,6
+02131,Boston,Roslindale,6
+02458,Newton,Newton Lower Falls,6
+01701,Framingham,Framingham Centre,5
+01742,Concord,Concord Center,5
+01760,Natick,Natick Center,5
+01801,Woburn,Woburn Center,5
+01845,North Andover,North Andover Center,5
+01880,Wakefield,Wakefield Center,5
+01886,Westford,Westford Center,5
+01890,Winchester,Winchester Center,5
+01970,Salem,Salem Common,5
+02048,Mansfield,Mansfield Center,5
+02109,Boston,Downtown,5
+02119,Roxbury,Roxbury Center,5
+02122,Dorchester,Dorchester Center,5
+02132,Boston,West Roxbury,5
+02186,Milton,Milton Village,5
+02356,North Easton,North Easton Center,5
+02452,Waltham,Waltham West,5
+02476,Arlington,Arlington Center,5
+02740,New Bedford,New Bedford Center,5
+01106,Longmeadow,Longmeadow Center,4
+01440,Gardner,Gardner Center,4
+01852,Lowell,Lowell Highlands,4
+01864,North Reading,North Reading Center,4
+01906,Saugus,Saugus Center,4
+02093,Wrentham,Wrentham Center,4
+02184,Braintree,Braintree Highlands,4
+02324,Bridgewater,Bridgewater Center,4
+02332,Duxbury,Duxbury Center,4
+02360,Plymouth,Plymouth Center,4
+02368,Randolph,Randolph Center,4
+02459,Newton,Newton Centre,4
+02460,Newton,Newtonville,4
+02724,Fall River,Fall River South,4
+02766,Norton,Norton Center,4
+01020,Chicopee,Chicopee Center,3
+01028,East Longmeadow,East Longmeadow Center,3
+01040,Holyoke,Holyoke Center,3
+01060,Northampton,Northampton Center,3
+01103,Springfield,Metro Center,3
+01108,Springfield,Metro Center,3
+01201,Pittsfield,Pittsfield Downtown,3
+01603,Worcester,Piedmont,3
+01612,Paxton,Paxton Center,3
+01720,Acton,Acton Center,3
+01757,Milford,Milford Center,3
+01830,Haverhill,Haverhill Downtown,3
+02072,Stoughton,Stoughton Center,3
+02120,Boston,Mission Hill,3
+02121,Boston,Dorchester,3
+02126,Boston,Mattapan,3
+02136,Boston,Hyde Park,3
+02150,Chelsea,Chelsea Center,3
+02170,Quincy,Wollaston,3
+02188,Weymouth,East Weymouth,3
+02190,Weymouth,South Weymouth,3
+02191,Weymouth,North Weymouth,3
+02216,Boston,Back Bay,3
+02301,Brockton,Brockton Downtown,3
+02302,Brockton,Campello,3
+02339,Hanover,Hanover Center,3
+02341,Hanson,Hanson Center,3
+02359,Pembroke,Pembroke Center,3
+02364,Kingston,Kingston Center,3
+02379,West Bridgewater,West Bridgewater Center,3
+02420,Lexington,Lexington Center,3
+02421,Lexington,Lexington East,3
+02467,Newton,Chestnut Hill,3
+02478,Belmont,Belmont Center,3
+02492,Needham,Needham Center,3
+02703,Attleboro,Attleboro Center,3
+02721,Fall River,Fall River Downtown,3
+02745,New Bedford,New Bedford North,3
+02747,North Dartmouth,North Dartmouth Center,3
+02760,North Attleboro,North Attleboro Center,3
+01001,Agawam,Agawam Center,2
+01002,Amherst,Amherst Center,2
+01007,Belchertown,Belchertown Center,2
+01027,Easthampton,Easthampton Center,2
+01030,Agawam,Feeding Hills,2
+01056,Ludlow,Ludlow Center,2
+01062,Northampton,Florence,2
+01075,South Hadley,South Hadley Center,2
+01085,Westfield,Westfield Center,2
+01089,West Springfield,West Springfield Center,2
+01095,Wilbraham,Wilbraham Center,2
+01104,Springfield,Liberty Heights,2
+01105,Springfield,South End,2
+01107,Springfield,Brightwood,2
+01109,Springfield,Old Hill,2
+01118,Springfield,East Forest Park,2
+01119,Springfield,Sixteen Acres,2
+01128,Springfield,Pine Point,2
+01129,Springfield,Indian Orchard,2
+01151,Springfield,Indian Orchard,2
+01230,Great Barrington,Great Barrington Center,2
+01238,Lee,Lee Center,2
+01240,Lenox,Lenox Center,2
+01247,North Adams,North Adams Center,2
+01501,Auburn,Auburn Center,2
+01505,Boylston,Boylston Center,2
+01507,Charlton,Charlton Center,2
+01510,Clinton,Clinton Center,2
+01515,East Brookfield,East Brookfield Center,2
+01516,Douglas,Douglas Center,2
+01519,Grafton,Grafton Center,2
+01520,Holden,Holden Center,2
+01523,Leicester,Leicester Center,2
+01524,Leicester,Rochdale,2
+01527,Millbury,Millbury Center,2
+01529,Millbury,Millbury East,2
+01532,Northborough,Northborough Center,2
+01534,Northbridge,Northbridge Center,2
+01536,Northbridge,Whitinsville,2
+01537,Oxford,North Oxford,2
+01540,Oxford,Oxford Center,2
+01541,Princeton,Princeton Center,2
+01542,Leicester,Rochdale,2
+01543,Rutland,Rutland Center,2
+01550,Southbridge,Southbridge Center,2
+01560,Southbridge,Southbridge Globe,2
+01562,Spencer,Spencer Center,2
+01566,Sturbridge,Sturbridge Center,2
+01568,Upton,Upton Center,2
+01569,Uxbridge,Uxbridge Center,2
+01570,Webster,Webster Center,2
+01571,Dudley,Dudley Center,2
+01581,Westborough,Westborough Center,2
+01583,West Boylston,West Boylston Center,2
+01588,Northbridge,Whitinsville,2
+01602,Worcester,Tatnuck,2
+01604,Worcester,Shrewsbury Street,2
+01605,Worcester,Burncoat,2
+01606,Worcester,Greendale,2
+01607,Worcester,Quinsigamond Village,2
+01608,Worcester,Worcester Downtown,2
+01609,Worcester,West Side,2
+01610,Worcester,Vernon Hill,2
+01611,Worcester,Cherry Valley,2
+01702,Framingham,Saxonville,2
+01730,Bedford,Bedford Center,2
+01748,Hopkinton,Hopkinton Center,2
+01752,Marlborough,Marlborough Center,2
+01770,Sherborn,Sherborn Center,2
+01772,Southborough,Southborough Center,2
+01776,Sudbury,Sudbury Center,2
+01778,Wayland,Wayland Center,2
+01803,Burlington,Burlington Center,2
+01810,Andover,Andover Center,2
+01826,Dracut,Dracut Center,2
+01844,Methuen,Methuen Center,2
+01902,Lynn,Lynn Downtown,2
+01905,Lynn,West Lynn,2
+01913,Amesbury,Amesbury Center,2
+01921,Boxford,Boxford Center,2
+01923,Danvers,Danversport,2
+01930,Gloucester,Gloucester Harbor,2
+01938,Ipswich,Ipswich Center,2
+01940,Lynnfield,Lynnfield Center,2
+01945,Marblehead,Marblehead Center,2
+01950,Newburyport,Newburyport Center,2
+01960,Peabody,Peabody Square,2
+01966,Rockport,Rockport Center,2
+01982,South Hamilton,South Hamilton Center,2
+01983,Topsfield,Topsfield Center,2
+01985,West Newbury,West Newbury Center,2
+02019,Bellingham,Bellingham Center,2
+02021,Canton,Canton Center,2
+02030,Dover,Dover Center,2
+02032,East Walpole,East Walpole Center,2
+02035,Foxborough,Foxborough Center,2
+02038,Franklin,Franklin Center,2
+02043,Hingham,Hingham Center,2
+02052,Medfield,Medfield Center,2
+02053,Medway,Medway Center,2
+02056,Norfolk,Norfolk Center,2
+02061,Norwell,Norwell Center,2
+02062,Norwood,Norwood Center,2
+02067,Sharon,Sharon Center,2
+02081,Walpole,Walpole Center,2
+02090,Westwood,Westwood Center,2
+02110,Boston,Financial District,2
+02142,Cambridge,Kendall Square,2
+02176,Melrose,Melrose Highlands,2
+02180,Stoneham,Stoneham Center,2
+02199,Boston,Prudential,2
+02330,Carver,Carver Center,2
+02331,Duxbury,Duxbury Center,2
+02333,East Bridgewater,East Bridgewater Center,2
+02346,Middleboro,Middleboro Center,2
+02347,Lakeville,Lakeville Center,2
+02351,Abington,Abington Center,2
+02367,Plympton,Plympton Center,2
+02370,Rockland,Rockland Center,2
+02375,South Easton,South Easton Center,2
+02382,Whitman,Whitman Center,2
+02451,Waltham,Waltham North,2
+02461,Newton,Newton Highlands,2
+02465,Newton,West Newton,2
+02466,Newton,Auburndale,2
+02481,Wellesley,Wellesley Hills,2
+02482,Wellesley,Wellesley Center,2
+02494,Needham,Needham Heights,2
+02532,Buzzards Bay,Buzzards Bay Center,2
+02537,East Sandwich,East Sandwich Center,2
+02554,Nantucket,Nantucket Center,2
+02702,Assonet,Assonet Center,2
+02718,East Taunton,East Taunton Center,2
+02726,Somerset,Somerset Center,2
+02739,Mattapoisett,Mattapoisett Center,2
+02743,Acushnet,Acushnet Center,2
+02748,South Dartmouth,South Dartmouth Center,2
+02767,Raynham,Raynham Center,2
+02768,Raynham Center,Raynham Center,2
+02769,Rehoboth,Rehoboth Center,2
+02771,Seekonk,Seekonk Center,2
+02777,Swansea,Swansea Center,2
+02780,Taunton,Taunton Center,2
+02790,Westport,Westport Center,2
+01005,Barre,Barre Center,1
+01013,Chicopee,Chicopee Falls,1
+01033,Granby,Granby Center,1
+01034,Tolland,Tolland Center,1
+01036,Hampden,Hampden Center,1
+01057,Monson,Monson Center,1
+01073,Southampton,Southampton Center,1
+01245,Monterey,Monterey Center,1
+01269,Windsor,Windsor Center,1
+01270,Windsor,Windsor Center,1
+01301,Greenfield,Greenfield Center,1
+01354,Gill,Gill Center,1
+01376,Turners Falls,Turners Falls Center,1
+01420,Fitchburg,Fitchburg Center,1
+01450,Groton,Groton Center,1
+01453,Leominster,Leominster Center,1
+01460,Littleton,Littleton Center,1
+01462,Lunenburg,Lunenburg Center,1
+01463,Pepperell,Pepperell Center,1
+01469,Townsend,Townsend Center,1
+01585,West Brookfield,West Brookfield Center,1
+01590,North Grafton,North Grafton Center,1
+01721,Ashland,Ashland Center,1
+01746,Holliston,Holliston Center,1
+01754,Maynard,Maynard Center,1
+01756,Northbridge,Northbridge Center,1
+01821,Billerica,Billerica Center,1
+01824,Chelmsford,Chelmsford Center,1
+01834,Groveland,Groveland Center,1
+01835,Haverhill,Bradford,1
+01842,Lawrence,Lawrence South,1
+01843,Lawrence,Lawrence North,1
+01850,Lowell,Lowell Central,1
+01854,Lowell,Lowell Acre,1
+01860,Merrimac,Merrimac Center,1
+01867,Reading,Reading Center,1
+01876,Tewksbury,Tewksbury Center,1
+01879,Tyngsboro,Tyngsboro Center,1
+01887,Wilmington,Wilmington Center,1
+01983,Topsfield,Topsfield Center,1

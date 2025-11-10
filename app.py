@@ -310,35 +310,26 @@ def build_map(agg, geojson_data) -> folium.Map:
     return m
 
 # ---------------------------
-# 6. Cache & persist the map object
+# 6. Cache & persist the map object safely
 # ---------------------------
 @st.cache_resource
 def get_cached_map(agg, geojson_data):
     return build_map(agg, geojson_data)
 
-# Maintain map state across reruns
-if "map_obj" not in st.session_state:
-    st.session_state["map_obj"] = get_cached_map(agg, geojson_data)
+# Rebuild only if data changes
+m = get_cached_map(agg, geojson_data)
 
 # ---------------------------
-# 7. Display the map smoothly
+# 7. Display the map
 # ---------------------------
-st.markdown(
-    """
-    <style>
-    /* Prevent Streamlit from rerunning script on map interactions */
-    iframe {
-        pointer-events: auto !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st_folium(
-    st.session_state["map_obj"],
-    width=1100,
-    height=800,
-    use_container_width=True,
-)
+# Remove the CSS snippet – not needed and may block rendering
+# Use a spinner for first-time load
+with st.spinner("Loading Massachusetts Bar Examinee Map..."):
+    st_folium(
+        m,
+        width=1100,
+        height=800,
+        use_container_width=True,
+        returned_objects=[],
+    )
 

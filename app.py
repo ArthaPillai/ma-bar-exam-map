@@ -101,12 +101,17 @@ def build_map(agg, geojson_data):
             feature["properties"]["Sub_Area"] = "-"
             feature["properties"]["Examinees"] = 0
 
+    # Rename property key for cleaner tooltip
+    for feature in geojson_data["features"]:
+        if "ZCTA5CE10" in feature["properties"]:
+            feature["properties"]["ZIP Code"] = feature["properties"].pop("ZCTA5CE10")
+
     # Add GeoJSON with hover tooltips
     m.add_geojson(
         geojson_data,
         style_function=style_function,
-        info_mode="on_hover",  # enables hover tooltips
-        fields=["ZIP Code", "Area", "Sub-Area", "Examinees"],
+        info_mode="on_hover",
+        fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
 

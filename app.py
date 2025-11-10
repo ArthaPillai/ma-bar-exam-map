@@ -121,4 +121,4 @@ def build_map(agg, geojson_data):
 # ---------------------------------------------------------
 with st.spinner("Loading Massachusetts Bar Examinee Map..."):
     m = build_map(agg, geojson_data)
-    m.to_streamlit(width=1100, height=800)
+    m.to_streamlit(width=1500, height=800)

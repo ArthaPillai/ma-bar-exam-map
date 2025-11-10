@@ -158,12 +158,11 @@
 
 
 # -------------------------------------------------
-# app.py  –  Streamlit + Folium (Optimized Version)
+# app.py – Streamlit + Leafmap (Optimized Version)
 # -------------------------------------------------
 import streamlit as st
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
+import leafmap.foliumap as leafmap
 import requests
 from branca.colormap import LinearColormap
 
@@ -177,7 +176,7 @@ st.set_page_config(
 )
 
 st.title("Massachusetts Bar Examinees (July 2025)")
-st.markdown("Hover for ZIP, area, and examinee count.")
+st.markdown("Hover over ZIP areas to see details.")
 
 # ---------------------------
 # 1. Load & cache the CSV
@@ -205,14 +204,12 @@ agg = (
 zip_info = agg.set_index("zip").to_dict(orient="index")
 
 # ---------------------------
-# 3. Load & cache the GeoJSON
+# 3. Load & filter GeoJSON
 # ---------------------------
 @st.cache_data
 def load_geojson():
     url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
     geo = requests.get(url).json()
-
-    # Filter only relevant ZIP codes to speed up rendering
     geo["features"] = [
         f for f in geo["features"]
         if f["properties"]["ZCTA5CE10"] in zip_info
@@ -222,114 +219,92 @@ def load_geojson():
 geojson_data = load_geojson()
 
 # ---------------------------
-# 4. Attach tooltips to every feature
+# 4. Prepare legend & colormap
 # ---------------------------
-for f in geojson_data["features"]:
-    z = f["properties"]["ZCTA5CE10"]
-    if z in zip_info:
-        i = zip_info[z]
-        html = (
-            f"<b>ZIP:</b> {z}<br>"
-            f"<b>Area:</b> {i['area']}<br>"
-            f"<b>Sub-area:</b> {i['sub_area']}<br>"
-            f"<b>Examinees:</b> {i['examinees']}"
-        )
-    else:
-        html = f"<b>ZIP:</b> {z}<br>No data"
-    f["properties"]["tooltip"] = html
+bins = [0, 5, 10, 20, 50, agg["examinees"].max()]
+cmap = LinearColormap(
+    colors=[
+        "#ffffb2",
+        "#fed976",
+        "#feb24c",
+        "#fd8d3c",
+        "#fc4e2a",
+        "#e31a1c",
+        "#bd0026",
+        "#800026",
+    ],
+    vmin=agg["examinees"].min(),
+    vmax=agg["examinees"].max(),
+).to_step(index=bins)
+cmap.caption = "Number of Examinees"
 
 # ---------------------------
-# 5. Build the Folium map (optimized)
+# 5. Build map using Leafmap
 # ---------------------------
-def build_map(agg, geojson_data) -> folium.Map:
-    m = folium.Map(
-        location=[42.1, -71.5],
-        zoom_start=8,
-        tiles="cartodbpositron",
-        attr='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors '
-             '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+@st.cache_resource
+def build_map(agg, geojson_data):
+    m = leafmap.Map(center=[42.1, -71.5], zoom=8, tiles="CartoDB.Positron")
+
+    # Convert aggregated data to dict for quick lookup
+    value_dict = dict(zip(agg["zip"], agg["examinees"]))
+
+    # Function for styling polygons dynamically
+    def style_function(feature):
+        zip_code = feature["properties"]["ZCTA5CE10"]
+        val = value_dict.get(zip_code, 0)
+        color = cmap(val) if val > 0 else "#cccccc"
+        return {
+            "fillColor": color,
+            "color": "black",
+            "weight": 0.5,
+            "fillOpacity": 0.85,
+        }
+
+    # Function for tooltips
+    def tooltip_function(feature):
+        z = feature["properties"]["ZCTA5CE10"]
+        if z in zip_info:
+            info = zip_info[z]
+            return (
+                f"<b>ZIP:</b> {z}<br>"
+                f"<b>Area:</b> {info['area']}<br>"
+                f"<b>Sub-area:</b> {info['sub_area']}<br>"
+                f"<b>Examinees:</b> {info['examinees']}"
+            )
+        else:
+            return f"<b>ZIP:</b> {z}<br>No data"
+
+    # Add polygons
+    m.add_geojson(
+        geojson_data,
+        style_function=style_function,
+        tooltip=tooltip_function,
     )
 
-    # Choropleth layer
-    ch = folium.Choropleth(
-        geo_data=geojson_data,
-        data=agg,
-        columns=["zip", "examinees"],
-        key_on="feature.properties.ZCTA5CE10",
-        fill_color="YlOrRd",
-        fill_opacity=0.85,
-        line_opacity=0.25,
-        nan_fill_color="lightgray",
-        legend_name="Number of Examinees",
-        highlight=False,
-        show=True,
-    ).add_to(m)
-
-    # Remove Folium’s default legend
-    for key in list(ch._children):
-        if key.startswith("color_map"):
-            del ch._children[key]
-
-    # Tooltip styling
-    ch.geojson.add_child(
-        folium.features.GeoJsonTooltip(
-            fields=["tooltip"],
-            aliases=[""],
-            labels=False,
-            sticky=True,
-            style="""
-                background-color:rgba(255,255,255,0.95);
-                border:1px solid #aaa;
-                border-radius:6px;
-                padding:10px;
-                font-family:Arial,sans-serif;
-                font-size:13px;
-                box-shadow:0 2px 6px rgba(0,0,0,0.2);
-            """,
-        )
+    # Add legend manually using colormap
+    m.add_colorbar(
+        cmap=cmap,
+        label="Number of Examinees",
+        orientation="horizontal",
     )
 
-    # Custom stepped legend
-    bins = [0, 5, 10, 20, 50, agg["examinees"].max()]
-    cmap = LinearColormap(
-        colors=[
-            "#ffffb2",
-            "#fed976",
-            "#feb24c",
-            "#fd8d3c",
-            "#fc4e2a",
-            "#e31a1c",
-            "#bd0026",
-            "#800026",
-        ],
-        vmin=agg["examinees"].min(),
-        vmax=agg["examinees"].max(),
-    ).to_step(index=bins)
-    cmap.caption = "Number of Examinees"
-    m.add_child(cmap)
     return m
 
 # ---------------------------
-# 6. Cache & persist the map object safely
+# 6. Render map efficiently
 # ---------------------------
-@st.cache_resource
-def get_cached_map(agg, geojson_data):
-    return build_map(agg, geojson_data)
-
-# Rebuild only if data changes
-m = get_cached_map(agg, geojson_data)
-
-# ---------------------------
-# 7. Display the map
-# ---------------------------
-# Remove the CSS snippet – not needed and may block rendering
-# Use a spinner for first-time load
 with st.spinner("Loading Massachusetts Bar Examinee Map..."):
-    st_folium(
-        m,
-        width=1100,
-        height=800,
-        use_container_width=True,
-        returned_objects=[],
-    )
+    m = build_map(agg, geojson_data)
+    m.to_streamlit(width=1100, height=800)
 
+st.markdown(
+    """
+    <style>
+    .leaflet-container {
+        font-family: Arial, sans-serif;
+        font-size: 13px;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)

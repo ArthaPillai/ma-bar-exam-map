@@ -159,125 +159,111 @@
 
 import streamlit as st
 import pandas as pd
-import requests
 import leafmap.foliumap as leafmap
-import branca.colormap as cm
+import json
+import requests
 
-# ---------------------------------------------------------
-# Streamlit Page Setup
-# ---------------------------------------------------------
-st.set_page_config(
-    page_title="Massachusetts Bar Examinee Map",
-    page_icon="🗺️",
-    layout="wide",
-)
+st.set_page_config(page_title="Massachusetts Bar Examinee Map", layout="wide")
 
-st.title("🗺️ Massachusetts Bar Examinee Distribution Map")
-st.markdown(
-    """
-    This interactive map visualizes the **number of bar examinees by ZIP code**
-    across Massachusetts. Hover over ZIP regions to view detailed information.
-    """
-)
-
-# ---------------------------------------------------------
-# Load Examinee Data (Local CSV)
-# ---------------------------------------------------------
+# -------------------------------------------------------
+# 1. Load Examinee Data
+# -------------------------------------------------------
 @st.cache_data
 def load_examinee_data():
-    # Load your CSV file directly from the repo
     df = pd.read_csv("data-ROBeC.csv", dtype={"zip": str})
     df["zip"] = df["zip"].str.zfill(5)
-    df = (
-        df.groupby("zip")
-        .agg(
-            area=("area", lambda x: ", ".join(sorted(set(x)))),
-            sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
-            count=("examinees", "sum"),
-        )
-        .reset_index()
-    )
+    df = df.rename(columns={"examinees": "Examinees", "area": "Area", "sub_area": "Sub-Area"})
     return df
 
-agg = load_examinee_data()
 
-# ---------------------------------------------------------
-# Load Massachusetts ZIP Code GeoJSON
-# ---------------------------------------------------------
+# -------------------------------------------------------
+# 2. Load GeoJSON for Massachusetts ZIP Codes
+# -------------------------------------------------------
 @st.cache_data
-def load_geojson():
-    url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
-    response = requests.get(url)
-    response.raise_for_status()
+def load_ma_geojson():
+    response = requests.get(
+        "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
+    )
     return response.json()
 
-geojson_data = load_geojson()
 
-# ---------------------------------------------------------
-# Build Map using Leafmap
-# ---------------------------------------------------------
-def build_map(agg, geojson_data):
-    """Builds an interactive choropleth map with hover tooltips using Leafmap."""
+# -------------------------------------------------------
+# 3. Merge Examinee Data with GeoJSON
+# -------------------------------------------------------
+def merge_data(geojson_data, df):
+    for feature in geojson_data["features"]:
+        zip_code = feature["properties"].get("ZCTA5CE10")
+        if zip_code in df["zip"].values:
+            row = df.loc[df["zip"] == zip_code].iloc[0]
+            feature["properties"]["Examinees"] = int(row["Examinees"])
+            feature["properties"]["Area"] = row.get("Area", "")
+            feature["properties"]["Sub-Area"] = row.get("Sub-Area", "")
+        else:
+            feature["properties"]["Examinees"] = 0
+            feature["properties"]["Area"] = ""
+            feature["properties"]["Sub-Area"] = ""
+    return geojson_data
 
-    # Initialize Leafmap
-    m = leafmap.Map(
-        center=[42.1, -71.7],
-        zoom=8,
-        locate_control=False,
-        draw_control=False,
-        measure_control=False,
-    )
 
-    # Prepare color scale
-    min_val = agg["count"].min()
-    max_val = agg["count"].max()
-    colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
-    colormap.caption = "Number of Examinees"
-    colormap.add_to(m)
+# -------------------------------------------------------
+# 4. Build Map with Leafmap
+# -------------------------------------------------------
+def build_map(df, geojson_data):
+    # Rename key for cleaner tooltip label
+    for feature in geojson_data["features"]:
+        if "ZCTA5CE10" in feature["properties"]:
+            feature["properties"]["ZIP Code"] = feature["properties"].pop("ZCTA5CE10")
 
-    # Lookup for examinee counts and area info
-    value_dict = agg.set_index("zip").to_dict(orient="index")
-
-    # Define style function for polygons
+    # Style based on Examinee count
     def style_function(feature):
-        zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
-        val = value_dict.get(zip_code, {}).get("count", 0)
+        count = feature["properties"]["Examinees"]
+        if count == 0:
+            fill_color = "#f0f0f0"
+        elif count < 5:
+            fill_color = "#c6dbef"
+        elif count < 15:
+            fill_color = "#6baed6"
+        else:
+            fill_color = "#2171b5"
         return {
-            "fillColor": colormap(val) if val > 0 else "#d9d9d9",
+            "fillColor": fill_color,
             "color": "black",
-            "weight": 0.3,
+            "weight": 0.5,
             "fillOpacity": 0.7,
         }
 
-    # Add custom tooltip info
-    for feature in geojson_data["features"]:
-        z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
-        if z in value_dict:
-            i = value_dict[z]
-            feature["properties"]["Area"] = i["area"]
-            feature["properties"]["Sub_Area"] = i["sub_area"]
-            feature["properties"]["Examinees"] = i["count"]
-        else:
-            feature["properties"]["Area"] = "No data"
-            feature["properties"]["Sub_Area"] = "-"
-            feature["properties"]["Examinees"] = 0
+    # Create Leafmap
+    m = leafmap.Map(center=[42.3, -71.8], zoom=8, tiles="cartodb positron")
 
     # Add GeoJSON with hover tooltips
     m.add_geojson(
         geojson_data,
         style_function=style_function,
-        info_mode="on_hover",  # enables hover tooltips
-        fields=["ZCTA5CE10", "Area", "Sub_Area", "Examinees"],
-        aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
+        info_mode="on_hover",
+        fields=["ZIP Code", "Area", "Sub-Area", "Examinees"],
+        aliases=["ZIP Code", "Area", "Sub-Area", "Examinees"],
     )
 
-    # Add layer control
     m.add_layer_control()
     return m
 
-# ---------------------------------------------------------
-# Render the Map
-# ---------------------------------------------------------
+
+# -------------------------------------------------------
+# 5. Streamlit UI
+# -------------------------------------------------------
+st.title("Massachusetts Bar Examinee Map")
+st.markdown(
+    """
+    Hover over any area to view the ZIP Code, Area, Sub-Area, and number of Examinees.
+    """
+)
+
+# Load data
+df = load_examinee_data()
+geojson_data = load_ma_geojson()
+geojson_data = merge_data(geojson_data, df)
+
+# Build and show map
 with st.spinner("Loading Massachusetts Bar Examinee Map..."):
-    m = build_map(agg, geojson_data)
+    m = build_map(df, geojson_data)
     m.to_streamlit(width=1100, height=800)

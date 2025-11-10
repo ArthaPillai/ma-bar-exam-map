@@ -1,7 +1,6 @@
 streamlit
-folium
+leafmap
 pandas
 requests
 branca
 streamlit-folium
-leafmap

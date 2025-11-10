@@ -138,12 +138,6 @@ st.set_page_config(
     page_title="Massachusetts Bar Examinee Map",
     layout="wide",
 )
-st.title("Massachusetts Bar Examinee Distribution Map")
-st.markdown(
-    """
-    Hover over any area to view the ZIP Code, Area, Sub-Area, and number of Examinees.
-    """
-)
 
 # ---------------------------------------------------------
 # Sidebar – Layer selector
@@ -157,7 +151,21 @@ layer_options = {
 selected_layer = st.sidebar.selectbox(
     "Select data layer",
     options=list(layer_options.keys()),
-    index=0,  # default = All years
+    index=0,
+)
+
+# ---- TITLE -------------------------------------------------
+if selected_layer == "All years":
+    title_suffix = "All Years"
+else:
+    title_suffix = f"July {selected_layer}"
+
+st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
+
+st.markdown(
+    """
+    Hover over any area to view the ZIP Code, Area, Sub-Area, and number of Examinees.
+    """
 )
 
 # ---------------------------------------------------------

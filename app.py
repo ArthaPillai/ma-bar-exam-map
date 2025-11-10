@@ -8,11 +8,11 @@ import branca.colormap as cm
 # Streamlit Page Setup
 # ---------------------------------------------------------
 st.set_page_config(
-    page_title="Massachusetts Bar Examinee Map",
+    page_title="Massachusetts Bar Examinee Map (July 2025)",
     layout="wide",
 )
 
-st.title("Massachusetts Bar Examinee Map (July 2025)")
+st.title("Massachusetts Bar Examinee Distribution Map")
 st.markdown(
     """
     Hover over any area to view the ZIP Code, Area, Sub-Area, and number of Examinees.
@@ -93,25 +93,22 @@ def build_map(agg, geojson_data):
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if z in value_dict:
             i = value_dict[z]
+            feature["properties"]["ZIP Code"] = z  # ✅ renamed key
             feature["properties"]["Area"] = i["area"]
             feature["properties"]["Sub_Area"] = i["sub_area"]
             feature["properties"]["Examinees"] = i["count"]
         else:
+            feature["properties"]["ZIP Code"] = z
             feature["properties"]["Area"] = "No data"
             feature["properties"]["Sub_Area"] = "-"
             feature["properties"]["Examinees"] = 0
 
-    # Rename property key for cleaner tooltip
-    for feature in geojson_data["features"]:
-        if "ZCTA5CE10" in feature["properties"]:
-            feature["properties"]["ZIP Code"] = feature["properties"].pop("ZCTA5CE10")
-
-    # Add GeoJSON with hover tooltips
+    # Add GeoJSON with hover tooltips (updated field name)
     m.add_geojson(
         geojson_data,
         style_function=style_function,
-        info_mode="on_hover",
-        fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
+        info_mode="on_hover",  # enables hover tooltips
+        fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],  # ✅ fixed here
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
 

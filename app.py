@@ -912,32 +912,32 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
-        # ------------------------
-        # Add Highway Layer (with route labels)
-        # ------------------------
-        elif highway_mode:
+    # ------------------------
+    # Add Highway Layer (with route labels)
+    # ------------------------
+    elif highway_mode:
         try:
             import geopandas as gpd
             from shapely.geometry import LineString
             from folium.features import DivIcon
-        
+
             gdf = gpd.read_file("ma_major_roads.geojson")
-        
+
             # Reproject to EPSG:4326 (lat/lon)
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
-        
+
             # Keep only primary + secondary roads for clarity
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
-        
+
             # Convert to GeoJSON for Leafmap
             highways = json.loads(gdf.to_json())
-        
+
             def highway_style(feature):
                 ftype = feature["properties"].get("FEATURE_TY", "")
                 color = "#0047AB" if ftype == "Primary Road" else "#FF8C00"
                 return {"color": color, "weight": 3, "opacity": 0.9}
-        
+
             # Add the colored highway lines
             m.add_geojson(
                 highways,
@@ -947,19 +947,19 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 fields=["FULLNAME", "FEATURE_TY"],
                 aliases=["Road Name", "Type"],
             )
-        
+
             # Add highway / route number labels as map icons
             for _, row in gdf.iterrows():
                 geom = row.geometry
                 name = row.get("FULLNAME", "")
                 if not isinstance(geom, LineString) or not name:
                     continue
-        
+
                 # Label only Interstate or numbered routes
                 if any(prefix in name for prefix in ["I-", "US", "MA ", "Route", "Hwy", "Rte"]):
                     midpoint = geom.interpolate(0.5, normalized=True)
                     lon, lat = midpoint.xy[0][0], midpoint.xy[1][0]
-        
+
                     # Create a simple route shield-like label
                     html = f"""
                     <div style="
@@ -975,13 +975,13 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                         {name.replace('Highway', '').replace('Hwy', '').strip()}
                     </div>
                     """
-        
+
                     m.add_marker(location=[lat, lon], icon=leafmap.folium.DivIcon(html=html))
-        
+
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
-
-
+   
+        
     m.add_layer_control()
     return m
 

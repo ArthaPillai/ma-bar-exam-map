@@ -909,40 +909,30 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
             
     # ------------------------
-    # Add Highway Layer – all shields visible (robust CRS/geometry fix)
+    # Add Highway Layer – NO GeoDataFrame (CRS error gone)
     # ------------------------
     elif highway_mode:
         try:
-            gdf = gpd.read_file("ma_major_roads.geojson")
-            
-            # ---- ROBUST FIX: Find and set active geometry column dynamically ----
-            # Debug: Print columns to console (check Streamlit logs)
-            print("Highway columns:", gdf.columns.tolist())
-            
-            geom_col = None
-            for col in gdf.columns:
-                if col.lower() in ['geometry', 'shape', 'wkb_geometry', 'the_geom']:
-                    geom_col = col
-                    break
-            
-            if geom_col is None:
-                st.warning("No geometry column found in ma_major_roads.geojson; skipping highways.")
-                return
-            
-            # Set it active
-            gdf = gdf.set_geometry(geom_col)
-            print(f"Set active geometry to: {geom_col}")
-            print(f"CRS after set: {gdf.crs}")
-            
-            # ---- Reproject if needed ----
-            if gdf.crs and str(gdf.crs) != "EPSG:4326":
-                gdf = gdf.to_crs(epsg=4326)
-                print("Reprojected to EPSG:4326")
-            
-            gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
-            
-            # Improved regex: catches I 90, I-90, US 1, US-1, MA 2, MA-2, Rt. 3, Route 3, etc.
+            # ------------------------------------------------------------------
+            # 1. Load the file as a plain dict (no GeoPandas → no CRS problem)
+            # ------------------------------------------------------------------
+            with open("ma_major_roads.geojson", "r", encoding="utf-8") as f:
+                roads_geojson = json.load(f)               # <-- pure dict
+    
+            # ------------------------------------------------------------------
+            # 2. Keep only Primary / Secondary roads
+            # ------------------------------------------------------------------
+            filtered_features = []
+            for feat in roads_geojson.get("features", []):
+                ftype = feat.get("properties", {}).get("FEATURE_TY", "")
+                if ftype in ("Primary Road", "Secondary Road"):
+                    filtered_features.append(feat)
+    
+            # ------------------------------------------------------------------
+            # 3. Extract route label (I-90, US-1, MA-2, Route 9 …)
+            # ------------------------------------------------------------------
             route_rx = re.compile(r"\b(I\b|I-|US\b|US-|MA\b|MA-|Rt\.\s?|Route\s?)(\d+[A-Z]?)\b", re.I)
+    
             def extract_route(txt):
                 if not txt: return None
                 m = route_rx.search(txt)
@@ -956,34 +946,39 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                     if prefix in ("MA", "MA-", "RT.", "ROUTE"):
                         return f"MA-{number}" if prefix.startswith("MA") else f"ROUTE {number}"
                 return None
-            gdf["route_label"] = gdf["FULLNAME"].apply(extract_route)
-            
-            # Filter to only routes we care about
-            gdf = gdf[gdf["route_label"].notna()]
-            
-            # Debug: Print detected routes to console
-            unique_routes = gdf["route_label"].unique().tolist()
-            print(f"Detected {len(unique_routes)} routes: {unique_routes}")
-            
-            # Colour palette
+    
+            # Add route_label to each feature's properties
+            for feat in filtered_features:
+                fullname = feat.get("properties", {}).get("FULLNAME", "")
+                label = extract_route(fullname)
+                feat["properties"]["route_label"] = label
+    
+            # Remove features without a route label
+            highways_features = [f for f in filtered_features if f["properties"]["route_label"]]
+    
+            # ------------------------------------------------------------------
+            # 4. ROAD LINES (highlighted)
+            # ------------------------------------------------------------------
+            highways_geojson = {"type": "FeatureCollection", "features": highways_features}
+    
             line_colors = {
-                "I-": "#FFD700",    # gold
-                "US-": "#FF8C00",   # orange
-                "MA-": "#32CD32",   # lime green
+                "I-": "#FFD700",      # gold
+                "US-": "#FF8C00",     # orange
+                "MA-": "#32CD32",     # lime green
                 "ROUTE": "#32CD32",
             }
-            
-            # ROAD LINES
-            highways_geojson = json.loads(gdf.to_json())
+    
             def line_style(feature):
                 route = feature["properties"].get("route_label")
                 if route:
                     prefix = next((p for p in line_colors if route.startswith(p)), None)
                     if prefix:
-                        col = line_colors[prefix]
-                        return {"color": col, "weight": 5, "opacity": 1.0}
-                col = "#0047AB" if feature["properties"]["FEATURE_TY"] == "Primary Road" else "#666666"
+                        return {"color": line_colors[prefix], "weight": 5, "opacity": 1.0}
+                # default
+                ftype = feature["properties"].get("FEATURE_TY", "")
+                col = "#0047AB" if ftype == "Primary Road" else "#666666"
                 return {"color": col, "weight": 3, "opacity": 0.9}
+    
             m.add_geojson(
                 highways_geojson,
                 layer_name="Major Roads",
@@ -992,75 +987,98 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 fields=["FULLNAME", "FEATURE_TY", "route_label"],
                 aliases=["Road Name", "Type", "Route"],
             )
-            
-            # SHIELDS: One per route, on a visible point of the longest segment
-            routes_gdf = gdf.copy()
-            routes_gdf["seg_len"] = routes_gdf.geometry.length
-            longest_gdf = routes_gdf.loc[routes_gdf.groupby("route_label")["seg_len"].idxmax()].reset_index(drop=True)
-            
+    
+            # ------------------------------------------------------------------
+            # 5. ONE SHIELD PER ROUTE – on a visible point of the longest segment
+            # ------------------------------------------------------------------
+            # Group by route_label → keep the *longest* LineString
+            route_to_geom = {}
+            for feat in highways_features:
+                route = feat["properties"]["route_label"]
+                geom = feat["geometry"]
+                if geom["type"] not in ("LineString", "MultiLineString"):
+                    continue
+                # Compute length (in degrees – fine for ordering)
+                coords = geom["coordinates"]
+                if geom["type"] == "LineString":
+                    length = sum(
+                        ((coords[i+1][0]-coords[i][0])**2 + (coords[i+1][1]-coords[i][1])**2)**0.5
+                        for i in range(len(coords)-1)
+                    )
+                    line = coords
+                else:  # MultiLineString
+                    longest_sub = None
+                    longest_len = -1
+                    for sub in coords:
+                        sub_len = sum(
+                            ((sub[i+1][0]-sub[i][0])**2 + (sub[i+1][1]-sub[i][1])**2)**0.5
+                            for i in range(len(sub)-1)
+                        )
+                        if sub_len > longest_len:
+                            longest_len = sub_len
+                            longest_sub = sub
+                    if longest_sub is None: continue
+                    length = longest_len
+                    line = longest_sub
+    
+                if route not in route_to_geom or length > route_to_geom[route][1]:
+                    route_to_geom[route] = (line, length)
+    
             # Map bounds for visibility
             bounds = m.get_bounds()
             south, west = bounds[0]
             north, east = bounds[1]
             view_box = sg.box(west, south, east, north)
-            
-            def find_visible_point(line):
-                if line.is_empty: return None
-                n_points = 20
-                for i in range(n_points + 1):
-                    pt = line.interpolate(i / n_points, normalized=True)
-                    if view_box.contains(pt):
-                        return pt
-                return None
-            
-            num_shields_added = 0
-            for _, row in longest_gdf.iterrows():
-                route = row["route_label"]
-                line = row["geometry"]
-                
-                # Handle MultiLineString
-                if isinstance(line, sg.MultiLineString):
-                    for sub_line in line.geoms:
-                        pt = find_visible_point(sub_line)
-                        if pt:
-                            lon, lat = pt.x, pt.y
-                            break
-                    else:
-                        continue
-                else:
-                    pt = find_visible_point(line)
-                    if not pt: continue
-                    lon, lat = pt.x, pt.y
-                
-                # Color
-                prefix = next((p for p in line_colors if route.startswith(p)), "ROUTE" if "ROUTE" in route else "MA-")
-                bg = line_colors[prefix]
-                
-                # HTML (larger, offset)
-                html = f"""
-                <div style="
-                    background:{bg}; color:white; font-weight:bold; font-family:Arial,sans-serif;
-                    font-size:13px; padding:3px 6px; border-radius:5px; border:1px solid #333;
-                    white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.5); transform:translateY(-10px);
-                ">{route}</div>
-                """
-                icon = folium.DivIcon(html=html, icon_size=(None, None))
-                folium.Marker(
-                    location=[lat, lon],
-                    icon=icon,
-                    tooltip=route,
-                    popup=folium.Popup(f"<b>{route}</b><br/>Major highway route", max_width=150)
-                ).add_to(m)
-                num_shields_added += 1
-            
-            print(f"Added {num_shields_added} shields")
-                
+    
+            def point_in_view(lon, lat):
+                return view_box.contains(sg.Point(lon, lat))
+    
+            # Helper: sample points along a line
+            def sample_line(line_coords, n=20):
+                if len(line_coords) < 2: return []
+                points = []
+                for i in range(n + 1):
+                    frac = i / n
+                    idx = int(frac * (len(line_coords) - 1))
+                    lon = line_coords[idx][0] + frac * (line_coords[idx+1][0] - line_coords[idx][0])
+                    lat = line_coords[idx][1] + frac * (line_coords[idx+1][1] - line_coords[idx][1])
+                    points.append((lon, lat))
+                return points
+    
+            # Add shields
+            for route, (line_coords, _) in route_to_geom.items():
+                # Find first point inside view
+                for lon, lat in sample_line(line_coords):
+                    if point_in_view(lon, lat):
+                        # colour
+                        prefix = next((p for p in line_colors if route.startswith(p)),
+                                      "ROUTE" if "ROUTE" in route else "MA-")
+                        bg = line_colors[prefix]
+    
+                        # HTML shield
+                        html = f"""
+                        <div style="
+                            background:{bg}; color:white; font-weight:bold;
+                            font-family:Arial,sans-serif; font-size:13px;
+                            padding:3px 6px; border-radius:5px; border:1px solid #333;
+                            white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.5);
+                            transform:translateY(-10px);
+                        ">{route}</div>
+                        """
+                        icon = folium.DivIcon(html=html, icon_size=(None, None))
+                        folium.Marker(
+                            location=[lat, lon],
+                            icon=icon,
+                            tooltip=route,
+                            popup=folium.Popup(f"<b>{route}</b><br/>Major highway route", max_width=150)
+                        ).add_to(m)
+                        break   # one shield per route
+    
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
-            # Debug: Print full error to console
-            print(f"Full highway error: {e}")
             import traceback
             traceback.print_exc()
+        
     m.add_layer_control()
     return m
 

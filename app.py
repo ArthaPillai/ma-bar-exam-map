@@ -913,24 +913,24 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # Add Highway Layer – highlighted lines + route shields
+    # Add Highway Layer – highlighted lines + ONE shield per route
     # ------------------------
     elif highway_mode:
         try:
             import geopandas as gpd, shapely.geometry as sg, re, json
     
-            # ------------------------------------------------------------------
-            # 1. Load & prepare the road GeoJSON
-            # ------------------------------------------------------------------
+            # --------------------------------------------------------------
+            # 1. Load & reproject roads
+            # --------------------------------------------------------------
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
     
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
     
-            # ------------------------------------------------------------------
-            # 2. Detect route numbers (I-90, US-1, MA-2, Route 9 …)
-            # ------------------------------------------------------------------
+            # --------------------------------------------------------------
+            # 2. Extract route label (I-90, US-1, MA-2, Route 9 …)
+            # --------------------------------------------------------------
             route_rx = re.compile(r"\b(I-|US-|MA-|Route\s?)(\d+[A-Z]?)\b", re.I)
     
             def extract_route(txt):
@@ -940,7 +940,9 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     
             gdf["route_label"] = gdf["FULLNAME"].apply(extract_route)
     
-            # colour palette for the **lines** (same colour will be used for the shield)
+            # --------------------------------------------------------------
+            # 3. Colour palette (line + shield)
+            # --------------------------------------------------------------
             line_colors = {
                 "I-":   "#FFD700",   # gold
                 "US-":  "#FF8C00",   # orange
@@ -948,9 +950,9 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 "ROUTE": "#32CD32",
             }
     
-            # ------------------------------------------------------------------
-            # 3. ---- ROAD LINES ------------------------------------------------
-            # ------------------------------------------------------------------
+            # --------------------------------------------------------------
+            # 4. ROAD LINES (highlighted)
+            # --------------------------------------------------------------
             highways_geojson = json.loads(gdf.to_json())
     
             def line_style(feature):
@@ -958,7 +960,6 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 if route and any(route.startswith(p) for p in line_colors):
                     col = line_colors[next(p for p in line_colors if route.startswith(p))]
                     return {"color": col, "weight": 5, "opacity": 1.0}
-                # default
                 col = "#0047AB" if feature["properties"]["FEATURE_TY"] == "Primary Road" else "#666666"
                 return {"color": col, "weight": 3, "opacity": 0.9}
     
@@ -971,37 +972,42 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 aliases=["Road Name", "Type", "Route"],
             )
     
-            # ------------------------------------------------------------------
-            # 4. ---- SHIELD MARKERS (one per unique route) --------------------
-            # ------------------------------------------------------------------
-            # Keep only rows that have a route label and pick the *first* segment
-            route_gdf = (
-                gdf.dropna(subset=["route_label"])
-                   .groupby("route_label")
-                   .first()
-                   .reset_index()
+            # --------------------------------------------------------------
+            # 5. ONE SHIELD PER ROUTE – placed on the *longest* segment
+            # --------------------------------------------------------------
+            # Keep only rows that have a route label
+            routes_gdf = gdf.dropna(subset=["route_label"]).copy()
+    
+            # Compute length of each segment (in degrees – fine for placement)
+            routes_gdf["seg_len"] = routes_gdf.geometry.length
+    
+            # For each route keep the **longest** segment
+            longest_gdf = (
+                routes_gdf.loc[routes_gdf.groupby("route_label")["seg_len"].idxmax()]
+                .reset_index(drop=True)
             )
     
             shield_features = []
-            for _, row in route_gdf.iterrows():
+            for _, row in longest_gdf.iterrows():
                 route = row["route_label"]
                 line  = row["geometry"]
     
-                # ---- midpoint of the line ------------------------------------
+                # ---- midpoint of the chosen (longest) segment ----------------
                 if isinstance(line, sg.LineString):
                     coords = line.coords
                 elif isinstance(line, sg.MultiLineString):
-                    longest = max(line.geoms, key=lambda l: l.length)
-                    coords = longest.coords
+                    longest_sub = max(line.geoms, key=lambda l: l.length)
+                    coords = longest_sub.coords
                 else:
                     continue
+    
                 mid_idx = len(coords) // 2
                 lon, lat = coords[mid_idx]
     
-                # ---- background colour (same as the line) --------------------
+                # ---- colour -------------------------------------------------
                 bg = next((c for p, c in line_colors.items() if route.startswith(p)), "#666666")
     
-                # ---- HTML for the shield ------------------------------------
+                # ---- HTML shield --------------------------------------------
                 html = f"""
                 <div style="
                     background:{bg};
@@ -1029,8 +1035,12 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 m.add_geojson(
                     shields_geojson,
                     layer_name="Route Shields",
-                    marker_type="divicon",      # <-- tells leafmap to use DivIcon
-                    icon_html="icon_html",      # <-- name of the property that holds the HTML
+                    marker_type="divicon",
+                    icon_html="icon_html",
+                    # optional: click popup
+                    info_mode="on_click",
+                    fields=["route"],
+                    aliases=["Route"]
                 )
     
         except Exception as e:

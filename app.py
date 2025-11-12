@@ -913,7 +913,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # Add Highway Layer (with highlighted route shields)
+    # Add Highway Layer (with highlighted route shields) – FIXED
     # ------------------------
     elif highway_mode:
         try:
@@ -931,7 +931,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
     
             # -------------------------------------------------
-            # 1. Find all route numbers and give each a colour
+            # 1. Extract route numbers
             # -------------------------------------------------
             route_regex = re.compile(r"\b(I-|US-|MA-|Route\s?)(\d+[A-Z]?)\b", re.I)
     
@@ -943,27 +943,25 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     
             gdf["route_label"] = gdf["FULLNAME"].apply(extract_route)
     
-            # Colour palette for the shields
+            # Color palette for shields
             shield_colors = {
-                "I-":   "#FFD700",   # gold   – interstates
-                "US-":  "#FF8C00",   # orange – US routes
-                "MA-":  "#32CD32",   # lime   – MA routes
-                "ROUTE": "#32CD32",  # same as MA
+                "I-":   "#FFD700",  # gold
+                "US-":  "#FF8C00",  # orange
+                "MA-":  "#32CD32",  # lime green
+                "ROUTE": "#32CD32",
             }
     
             # -------------------------------------------------
-            # 2. Convert to GeoJSON for the road lines
+            # 2. Road lines (styled)
             # -------------------------------------------------
             highways_geojson = json.loads(gdf.to_json())
     
             def highway_style(feature):
                 ftype = feature["properties"].get("FEATURE_TY", "")
-                route  = feature["properties"].get("route_label")
+                route = feature["properties"].get("route_label")
                 if route and any(route.startswith(p) for p in shield_colors):
-                    # highlighted route – thicker, bright line
-                    return {"color": shield_colors[next(p for p in shield_colors if route.startswith(p))],
-                            "weight": 5, "opacity": 1.0}
-                # default style
+                    color = shield_colors[next(p for p in shield_colors if route.startswith(p))]
+                    return {"color": color, "weight": 5, "opacity": 1.0}
                 color = "#0047AB" if ftype == "Primary Road" else "#666666"
                 return {"color": color, "weight": 3, "opacity": 0.9}
     
@@ -977,19 +975,31 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             )
     
             # -------------------------------------------------
-            # 3. Add the **shield markers** (one per unique route)
+            # 3. Build shields with pre-rendered HTML in properties
             # -------------------------------------------------
-            # Group by route_label, keep only the *first* geometry (any segment is fine)
             route_gdf = gdf.dropna(subset=["route_label"]).groupby("route_label").first().reset_index()
     
-            def get_shield_html(feature):
-                route = feature["properties"].get("route", "")
-                if not route:
-                    return ""
-                # ---- colour for the shield background ----
-                bg = next((shield_colors[p] for p in shield_colors if route.startswith(p)), "#666666")
-                # ---- HTML for the shield (small white box with bold text) ----
-                return f"""
+            shield_features = []
+            for _, row in route_gdf.iterrows():
+                route = row["route_label"]
+                line = row["geometry"]
+    
+                # Pick midpoint
+                if isinstance(line, sg.LineString):
+                    coords = line.coords
+                elif isinstance(line, sg.MultiLineString):
+                    longest = max(line.geoms, key=lambda l: l.length)
+                    coords = longest.coords
+                else:
+                    continue
+                mid_idx = len(coords) // 2
+                lon, lat = coords[mid_idx]
+    
+                # Background color
+                bg = next((c for p, c in shield_colors.items() if route.startswith(p)), "#666666")
+    
+                # Pre-render HTML
+                icon_html = f"""
                 <div style="
                     background:{bg};
                     color:white;
@@ -1004,27 +1014,15 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 ">{route}</div>
                 """
     
-            shield_features = []
-            for _, row in route_gdf.iterrows():
-                route = row["route_label"]
-                line  = row["geometry"]
-    
-                # ---- pick a point roughly in the middle of the segment ----
-                if isinstance(line, sg.LineString):
-                    pt = sg.Point(line.coords[len(line.coords)//2])
-                elif isinstance(line, sg.MultiLineString):
-                    # take midpoint of the longest part
-                    longest = max(line.geoms, key=lambda l: l.length)
-                    pt = sg.Point(longest.coords[len(longest.coords)//2])
-                else:
-                    continue
-    
                 shield_features.append({
                     "type": "Feature",
-                    "geometry": sg.mapping(pt),
+                    "geometry": {
+                        "type": "Point",
+                        "coordinates": [lon, lat]
+                    },
                     "properties": {
                         "route": route,
-                        "popup": f"<b>{route}</b><br/>Click for road details"  # Simple popup on click
+                        "icon_html": icon_html  # This is the key!
                     }
                 })
     
@@ -1034,8 +1032,8 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 m.add_geojson(
                     shields_geojson,
                     layer_name="Route Shields",
-                    marker_type="divicon",      # Enables custom HTML icons
-                    icon_html=get_shield_html,  # Function returns HTML per feature
+                    marker_type="divicon",        # Tell leafmap to use DivIcon
+                    icon_html="icon_html",        # Use the pre-rendered HTML from properties
                 )
     
         except Exception as e:

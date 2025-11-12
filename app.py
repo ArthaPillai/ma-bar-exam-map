@@ -673,18 +673,24 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     # ------------------------
     elif highway_mode:
         try:
+            import geopandas as gpd
             gdf = gpd.read_file("ma_major_roads.geojson")
+    
+            # Reproject to EPSG:4326 (lat/lon)
+            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
+                gdf = gdf.to_crs(epsg=4326)
+    
             # Keep only primary + secondary roads for clarity
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
-
+    
             # Convert to GeoJSON for Leafmap
             highways = json.loads(gdf.to_json())
-
+    
             def highway_style(feature):
                 ftype = feature["properties"].get("FEATURE_TY", "")
                 color = "#0047AB" if ftype == "Primary Road" else "#FF8C00"
-                return {"color": color, "weight": 3, "opacity": 0.8}
-
+                return {"color": color, "weight": 3, "opacity": 0.9}
+    
             m.add_geojson(
                 highways,
                 layer_name="Major Roads",

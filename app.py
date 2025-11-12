@@ -909,23 +909,35 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
             
     # ------------------------
-    # Add Highway Layer – all shields visible (CRS fixed)
+    # Add Highway Layer – all shields visible (robust CRS/geometry fix)
     # ------------------------
     elif highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             
-            # ---- FIX: Explicitly set active geometry column ----
-            if "geometry" in gdf.columns:
-                gdf = gdf.set_geometry("geometry")
-            else:
-                # Fallback if column is named differently (unlikely)
-                st.warning("No 'geometry' column found; skipping highways.")
+            # ---- ROBUST FIX: Find and set active geometry column dynamically ----
+            # Debug: Print columns to console (check Streamlit logs)
+            print("Highway columns:", gdf.columns.tolist())
+            
+            geom_col = None
+            for col in gdf.columns:
+                if col.lower() in ['geometry', 'shape', 'wkb_geometry', 'the_geom']:
+                    geom_col = col
+                    break
+            
+            if geom_col is None:
+                st.warning("No geometry column found in ma_major_roads.geojson; skipping highways.")
                 return
             
+            # Set it active
+            gdf = gdf.set_geometry(geom_col)
+            print(f"Set active geometry to: {geom_col}")
+            print(f"CRS after set: {gdf.crs}")
+            
             # ---- Reproject if needed ----
-            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
+            if gdf.crs and str(gdf.crs) != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
+                print("Reprojected to EPSG:4326")
             
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
             
@@ -948,6 +960,10 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             
             # Filter to only routes we care about
             gdf = gdf[gdf["route_label"].notna()]
+            
+            # Debug: Print detected routes to console
+            unique_routes = gdf["route_label"].unique().tolist()
+            print(f"Detected {len(unique_routes)} routes: {unique_routes}")
             
             # Colour palette
             line_colors = {
@@ -997,6 +1013,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                         return pt
                 return None
             
+            num_shields_added = 0
             for _, row in longest_gdf.iterrows():
                 route = row["route_label"]
                 line = row["geometry"]
@@ -1034,9 +1051,16 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                     tooltip=route,
                     popup=folium.Popup(f"<b>{route}</b><br/>Major highway route", max_width=150)
                 ).add_to(m)
+                num_shields_added += 1
+            
+            print(f"Added {num_shields_added} shields")
                 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
+            # Debug: Print full error to console
+            print(f"Full highway error: {e}")
+            import traceback
+            traceback.print_exc()
     m.add_layer_control()
     return m
 

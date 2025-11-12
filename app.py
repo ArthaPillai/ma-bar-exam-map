@@ -982,6 +982,28 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             # Group by route_label, keep only the *first* geometry (any segment is fine)
             route_gdf = gdf.dropna(subset=["route_label"]).groupby("route_label").first().reset_index()
     
+            def get_shield_html(feature):
+                route = feature["properties"].get("route", "")
+                if not route:
+                    return ""
+                # ---- colour for the shield background ----
+                bg = next((shield_colors[p] for p in shield_colors if route.startswith(p)), "#666666")
+                # ---- HTML for the shield (small white box with bold text) ----
+                return f"""
+                <div style="
+                    background:{bg};
+                    color:white;
+                    font-weight:bold;
+                    font-family:Arial,Helvetica,sans-serif;
+                    font-size:11px;
+                    padding:2px 5px;
+                    border-radius:4px;
+                    border:1px solid #333;
+                    white-space:nowrap;
+                    box-shadow:0 1px 3px rgba(0,0,0,0.4);
+                ">{route}</div>
+                """
+    
             shield_features = []
             for _, row in route_gdf.iterrows():
                 route = row["route_label"]
@@ -997,29 +1019,13 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 else:
                     continue
     
-                # ---- colour for the shield background ----
-                bg = next((shield_colors[p] for p in shield_colors if route.startswith(p)), "#666666")
-    
-                # ---- HTML for the shield (small white box with bold text) ----
-                html = f"""
-                <div style="
-                    background:{bg};
-                    color:white;
-                    font-weight:bold;
-                    font-family:Arial,Helvetica,sans-serif;
-                    font-size:11px;
-                    padding:2px 5px;
-                    border-radius:4px;
-                    border:1px solid #333;
-                    white-space:nowrap;
-                    box-shadow:0 1px 3px rgba(0,0,0,0.4);
-                ">{route}</div>
-                """
-    
                 shield_features.append({
                     "type": "Feature",
                     "geometry": sg.mapping(pt),
-                    "properties": {"route": route}
+                    "properties": {
+                        "route": route,
+                        "popup": f"<b>{route}</b><br/>Click for road details"  # Simple popup on click
+                    }
                 })
     
             if shield_features:
@@ -1028,8 +1034,8 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 m.add_geojson(
                     shields_geojson,
                     layer_name="Route Shields",
-                    icon_html=lambda f: html,   # leafmap will inject the HTML we built above
-                    tooltip="route",            # shows the same text on hover
+                    marker_type="divicon",      # Enables custom HTML icons
+                    icon_html=get_shield_html,  # Function returns HTML per feature
                 )
     
         except Exception as e:

@@ -292,7 +292,7 @@
 import streamlit as st
 import pandas as pd
 import requests
-import folium
+import leafmap.foliumap as leafmap
 import branca.colormap as cm
 import json
 import geopandas as gpd
@@ -368,29 +368,30 @@ def load_geojson():
 geojson_data = load_geojson()
 
 # ---------------------------------------------------------
-# Build Map → Returns folium.Map (for HTML export)
+# Build Map (leafmap version - for display)
 # ---------------------------------------------------------
-def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> folium.Map:
-    m = folium.Map(
-        location=[42.3601, -71.0589],
-        zoom_start=8,
-        tiles="CartoDB positron",
-        control_scale=True
+def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
+    m = leafmap.Map(
+        center=[42.3601, -71.0589],
+        zoom=8,
+        locate_control=False,
+        draw_control=False,
+        measure_control=False,
+        scroll_wheel_zoom=True
     )
 
-    # Color scale
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
     if max_val == min_val:
         max_val = min_val + 1
     colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
     colormap.caption = "Number of Examinees"
+    colormap.add_to(m)
 
     value_dict = agg_df.set_index("zip").to_dict(orient="index")
-
-    # Filter visible ZIPs
     visible_features = []
     bounds = None
+
     for feature in geojson["features"]:
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         is_mbta_area = z in MBTA_ZIPS
@@ -419,13 +420,9 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             if bounds is None:
                 bounds = [minx, miny, maxx, maxy]
             else:
-                bounds = [
-                    min(bounds[0], minx), min(bounds[1], miny),
-                    max(bounds[2], maxx), max(bounds[3], maxy)
-                ]
+                bounds = [min(bounds[0], minx), min(bounds[1], miny), max(bounds[2], maxx), max(bounds[3], maxy)]
         visible_features.append(feature)
 
-    # Style
     def style_function(feature):
         zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         val = value_dict.get(zip_code, {}).get("count", 0)
@@ -436,23 +433,21 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             "fillOpacity": 0.7,
         }
 
-    # Add ZIP layer
-    folium.GeoJson(
-        {"type": "FeatureCollection", "features": visible_features},
+    visible_geojson = {"type": "FeatureCollection", "features": visible_features}
+    m.add_geojson(
+        visible_geojson,
         style_function=style_function,
-        tooltip=folium.GeoJsonTooltip(
-            fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
-            aliases=["ZIP", "Area", "Sub-Area", "Examinees"],
-            localize=True,
-            style=("background-color: white; color: #333; font-family: arial; font-size: 12px; padding: 6px;")
-        )
-    ).add_to(m)
+        info_mode="on_hover",
+        fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
+        aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
+    )
 
-    # Fit bounds
     if (mbta_mode or highway_mode) and bounds:
-        m.fit_bounds([[bounds[1]-0.01, bounds[0]-0.01], [bounds[3]+0.01, bounds[2]+0.01]])
+        padding = 0.01
+        padded_bounds = [[bounds[1] - padding, bounds[0] - padding], [bounds[3] + padding, bounds[2] + padding]]
+        m.fit_bounds(padded_bounds)
 
-    # === MBTA LINES & STATIONS ===
+    # MBTA
     if mbta_mode:
         line_colors = {
             "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
@@ -466,43 +461,49 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             for feat in routes["features"]:
                 props = feat.get("properties", {})
                 route_id = str(props.get("id") or props.get("route_id", "")).lower()
+                name = props.get("name", "Unknown Line")
                 color = line_colors.get(route_id, "#666666")
-                folium.GeoJson(
-                    feat,
-                    style_function=lambda x, c=color: {"color": c, "weight": 5, "opacity": 0.9}
-                ).add_to(m)
+                m.add_geojson(
+                    {"type": "FeatureCollection", "features": [feat]},
+                    style={"color": color, "weight": 5, "opacity": 0.9},
+                    layer_name=name,
+                )
         except Exception as e:
             st.warning(f"MBTA lines failed: {e}")
 
         try:
             with open("stops.geojson", "r", encoding="utf-8") as f:
                 stops = json.load(f)
-            for feat in stops["features"]:
-                coords = feat["geometry"]["coordinates"]
-                lines = feat["properties"].get("lines", [])
+            def station_style(feature):
+                lines = feature["properties"].get("lines", [])
                 primary = next((l for l in lines if l in line_colors), "silver")
-                folium.CircleMarker(
-                    location=[coords[1], coords[0]],
-                    radius=6,
-                    color="white",
-                    weight=1.5,
-                    fillColor=line_colors.get(primary, "#666"),
-                    fillOpacity=0.9,
-                    tooltip=folium.Tooltip(
-                        f"<b>{feat['properties'].get('name', 'Station')}</b><br>Lines: {', '.join(lines)}",
-                        style="font-family: arial; font-size: 11px;"
-                    )
-                ).add_to(m)
+                return {
+                    "fillColor": line_colors.get(primary, "#666666"),
+                    "color": "white",
+                    "weight": 1.5,
+                    "radius": 6,
+                    "fillOpacity": 0.9,
+                }
+            m.add_geojson(
+                stops,
+                layer_name="MBTA Stations",
+                style_callback=station_style,
+                info_mode="on_click",
+                fields=["name", "lines"],
+                aliases=["Station", "Lines"],
+            )
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
-    # === HIGHWAY LAYER ===
+    # Highways
     elif highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
+            type_map = {"Primary Road": "Interstate / Major Highway", "Secondary Road": "State Route / Arterial"}
+            gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(type_map)
             gdf["ROAD_NAME"] = (
                 gdf["FULLNAME"]
                 .str.replace(r"\s+(E|W|N|S|East|West|North|South)$", "", regex=True)
@@ -510,56 +511,62 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 .fillna("Unnamed Road")
             )
             highways = json.loads(gdf.to_json())
-            for feat in highways["features"]:
-                ftype = feat["properties"]["FEATURE_TY"]
+            def highway_style(feature):
+                ftype = feature["properties"].get("FEATURE_TY", "")
                 color = "#0047AB" if ftype == "Primary Road" else "#00843D"
-                folium.GeoJson(
-                    feat,
-                    style_function=lambda x, c=color: {"color": c, "weight": 4, "opacity": 0.9},
-                    tooltip=folium.Tooltip(
-                        f"<b>{feat['properties']['ROAD_NAME']}</b><br>{ftype.replace(' Road', '')}",
-                        style="font-family: arial;"
-                    )
-                ).add_to(m)
+                return {"color": color, "weight": 4, "opacity": 0.9}
+            m.add_geojson(
+                highways,
+                layer_name="Major Highways",
+                style_function=highway_style,
+                info_mode="on_hover",
+                fields=["ROAD_NAME", "ROAD_TYPE"],
+                aliases=["Highway", "Type"],
+            )
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
 
-    colormap.add_to(m)
-    folium.LayerControl().add_to(m)
+    m.add_layer_control()
     return m
 
 # ---------------------------------------------------------
-# Render Map in Streamlit
+# Convert leafmap → folium (for HTML export only)
+# ---------------------------------------------------------
+def leafmap_to_folium(leafmap_obj) -> 'folium.Map':
+    """Extract underlying folium map from leafmap"""
+    return leafmap_obj._folium_map
+
+# ---------------------------------------------------------
+# Render in Streamlit
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 highway_mode = (view_mode == "Greater Boston (Highways)")
 
 with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
-    m_folium = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
-    # Convert to HTML for Streamlit
-    from streamlit_folium import folium_static
-    folium_static(m_folium, width=1500, height=700)
+    m_leaf = build_leafmap(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
+    m_leaf.to_streamlit(width=1500, height=700)
 
 # ---------------------------------------------------------
-# DOWNLOAD AS HTML BUTTON
+# DOWNLOAD AS HTML (Preserves leafmap look!)
 # ---------------------------------------------------------
 st.markdown("---")
-if st.button("📥 Download Current Map as HTML (Offline)"):
-    with st.spinner("Generating standalone HTML file..."):
-        m_download = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
+if st.button("Download Current Map as HTML (Offline)"):
+    with st.spinner("Generating HTML with original style..."):
+        # Reuse the same map object
+        folium_map = leafmap_to_folium(m_leaf)
         
         output = BytesIO()
-        m_download.save(output, close_file=False)
+        folium_map.save(output, close_file=False)
         html_bytes = output.getvalue()
 
         filename = f"ma_bar_exam_map_{selected_layer.lower().replace(' ', '_')}_{view_mode.lower().replace(' ', '_').replace('(', '').replace(')', '')}.html"
-        
+
         st.download_button(
-            label="✅ Download HTML File",
+            label="Download HTML File",
             data=html_bytes,
             file_name=filename,
             mime="text/html",
-            help="Opens in any browser. Works offline (except base map tiles)."
+            help="Preserves your original map style. Works offline (except base tiles)."
         )
-        st.success(f"**{filename}** is ready! Click above to download.")
-        st.info("💡 **Tip:** Open in Chrome/Firefox. Base map needs internet unless you host tiles locally.")
+        st.success("HTML ready! Click to download.")
+        st.info("Your map style is 100% preserved!")

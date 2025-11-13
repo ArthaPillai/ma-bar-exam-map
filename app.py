@@ -733,7 +733,7 @@ import geopandas as gpd
 st.set_page_config(page_title="Massachusetts Bar Examinee Map", layout="wide")
 
 # ---------------------------------------------------------
-# MBTA subway-served ZIP codes
+# MBTA subway‑served ZIP codes
 # ---------------------------------------------------------
 MBTA_ZIPS = {
     "02108", "02109", "02110", "02111", "02113", "02114", "02115", "02116", "02118", "02119", "02120", "02121",
@@ -765,7 +765,7 @@ view_mode = st.sidebar.radio(
 title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
 st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
 st.markdown(
-    f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \n"
+    f"**View:** *{view_mode}* | **Data:** *{title_suffix}*  \n"
     "Hover over ZIPs. **Hover or click** highways for details."
 )
 
@@ -807,7 +807,7 @@ def build_map(
     highway_mode: bool = False,
 ) -> leafmap.Map:
 
-    # ZOOM: Exactly the same for MBTA and Highways (your original perfect view)
+    # ----- ZOOM – identical for MBTA & Highways (your original perfect view) -----
     if mbta_mode or highway_mode:
         m = leafmap.Map(
             center=[42.30, -71.05],
@@ -825,7 +825,7 @@ def build_map(
             measure_control=False,
         )
 
-    # Color scale
+    # ----- Choropleth colour scale -----
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
     if max_val == min_val:
@@ -836,6 +836,7 @@ def build_map(
 
     value_dict = agg_df.set_index("zip").to_dict(orient="index")
 
+    # ----- ZIP style function -----
     def zip_style(feature):
         zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if (mbta_mode or highway_mode) and zip_code not in MBTA_ZIPS:
@@ -848,19 +849,19 @@ def build_map(
             "fillOpacity": 0.7,
         }
 
-    # Update properties for ZIP tooltips
-    for feature in geojson["features"]:
-        z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
+    # ----- Update ZIP properties (tooltip) -----
+    for feat in geojson["features"]:
+        z = str(feat["properties"].get("ZCTA5CE10", "")).zfill(5)
         if z in value_dict:
             i = value_dict[z]
-            feature["properties"].update({
+            feat["properties"].update({
                 "ZIP Code": z,
                 "Area": i["area"],
                 "Sub_Area": i["sub_area"],
                 "Examinees": i["count"]
             })
         else:
-            feature["properties"].update({
+            feat["properties"].update({
                 "ZIP Code": z,
                 "Area": "No data",
                 "Sub_Area": "-",
@@ -872,7 +873,7 @@ def build_map(
         style_function=zip_style,
         info_mode="on_hover",
         fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
-        aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
+        aliases=["ZIP Code", "Area", "Sub‑area", "Examinees"],
     )
 
     # ------------------------
@@ -931,7 +932,7 @@ def build_map(
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # HIGHWAY LAYER – NOW WITH TOOLTIP ON HOVER + CLICK
+    # HIGHWAY LAYER – NO CALLBACK FUNCTIONS → JSON‑serialisable
     # ------------------------
     elif highway_mode:
         try:
@@ -941,7 +942,7 @@ def build_map(
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Filter
+            # Keep only primary / secondary
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
 
             # Friendly names
@@ -949,28 +950,35 @@ def build_map(
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(road_type_map)
             gdf["ROAD_NAME"] = gdf["FULLNAME"]
 
-            # Convert to dict for leafmap
+            # ---- Build tooltip HTML directly in the GeoJSON ----
+            def make_tooltip(row):
+                return (
+                    f"<strong>Road Name:</strong> {row['ROAD_NAME'] or 'N/A'}<br>"
+                    f"<strong>Road Type:</strong> {row['ROAD_TYPE'] or 'N/A'}"
+                )
+
+            gdf["tooltip"] = gdf.apply(make_tooltip, axis=1)
+
+            # Convert to plain dict (no pandas objects)
             highways_geojson = json.loads(gdf.to_json())
 
+            # Add the tooltip as a property that Folium understands
+            for feat in highways_geojson["features"]:
+                feat["properties"]["tooltip"] = feat["properties"].pop("tooltip")
+
+            # ---- Style function (pure dict) ----
             def highway_style(feature):
                 ftype = feature["properties"]["FEATURE_TY"]
-                color = "#0047AB" if ftype == "Primary Road" else "#008000"  # Green for Major Road
+                color = "#0047AB" if ftype == "Primary Road" else "#008000"  # green for Major Road
                 return {"color": color, "weight": 4, "opacity": 0.9}
 
-            def highway_tooltip(feature):
-                props = feature["properties"]
-                html = f"""
-                <strong>Road Name:</strong> {props.get('ROAD_NAME', 'N/A')}<br>
-                <strong>Road Type:</strong> {props.get('ROAD_TYPE', 'N/A')}
-                """
-                return {"tooltip": html, "permanent": False}
-
+            # ---- Add the layer ----
             m.add_geojson(
                 highways_geojson,
                 layer_name="Major Roads",
-                style_callback=highway_style,
-                tooltip_callback=highway_tooltip,
-                info_mode="on_hover on_click",  # both!
+                style_function=highway_style,
+                tooltip="tooltip",               # tells leafmap to use the pre‑computed HTML
+                info_mode="on_hover on_click",   # both hover and click
             )
 
         except Exception as e:

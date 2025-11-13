@@ -718,6 +718,7 @@
 
 #version 4
 
+# app.py
 import streamlit as st
 import pandas as pd
 import requests
@@ -725,6 +726,8 @@ import leafmap.foliumap as leafmap
 import branca.colormap as cm
 import json
 import geopandas as gpd
+import numpy as np
+import math
 
 # ---------------------------------------------------------
 # Streamlit Page Setup
@@ -795,11 +798,32 @@ def load_geojson():
 
 geojson_data = load_geojson()
 
+# -------------------------
+# Helper: safe bounds check
+# -------------------------
+def bounds_are_valid(bounds):
+    """
+    bounds: sequence-like [minx, miny, maxx, maxy]
+    returns True if all values are finite numbers and min < max
+    """
+    if bounds is None:
+        return False
+    try:
+        b = np.asarray(bounds, dtype=float)
+        if b.size != 4:
+            return False
+        if not np.isfinite(b).all():
+            return False
+        # minx < maxx and miny < maxy
+        return (b[0] < b[2]) and (b[1] < b[3])
+    except Exception:
+        return False
+
 # ---------------------------------------------------------
 # Build Map
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-    # Base map (center doesn’t matter much; we’ll auto-fit later)
+    # Base map (initial center arbitrary; we'll zoom to data bounds)
     m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
 
     # Color scale
@@ -825,8 +849,8 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             "fillOpacity": 0.7,
         }
 
-    # Enrich ZIP polygons
-    for feature in geojson["features"]:
+    # Enrich ZIP polygons with properties for tooltip
+    for feature in geojson.get("features", []):
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if z in value_dict:
             i = value_dict[z]
@@ -854,53 +878,83 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     )
 
     # ------------------------
-    # Add Highway Layer (UPDATED)
+    # Add Highway Layer (robust)
     # ------------------------
     if highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
 
-            # Reproject to EPSG:4326 (lat/lon)
+            # Reproject to EPSG:4326 (lat/lon) if needed
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Keep only primary + secondary roads
-            gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
+            # Keep only primary + secondary roads; if column missing, handle gracefully
+            if "FEATURE_TY" not in gdf.columns:
+                st.warning("Highway data missing FEATURE_TY column — showing all features.")
+            else:
+                gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
 
-            # Rename road types for clarity
-            gdf["Road Type"] = gdf["FEATURE_TY"].replace({
-                "Primary Road": "Highway",
-                "Secondary Road": "Main Road"
-            })
+            # Rename road types for clarity (if FEATURE_TY exists)
+            if "FEATURE_TY" in gdf.columns:
+                gdf["Road Type"] = gdf["FEATURE_TY"].replace({
+                    "Primary Road": "Highway",
+                    "Secondary Road": "Main Road"
+                })
+            else:
+                # fallback
+                gdf["Road Type"] = "Road"
 
             # Convert to GeoJSON
             highways = json.loads(gdf.to_json())
 
             def highway_style(feature):
                 rtype = feature["properties"].get("FEATURE_TY", "")
-                color = "#0047AB" if rtype == "Primary Road" else "#228B22"  # Blue for highways, green for main roads
+                # Blue for highways, green for main roads (secondary)
+                color = "#0047AB" if rtype == "Primary Road" else "#228B22"
                 return {"color": color, "weight": 3, "opacity": 0.9}
 
-            # ✅ Tooltip label fixed here
+            # Ensure FULLNAME or an alternative exists for display
+            if "FULLNAME" not in gdf.columns:
+                display_field = gdf.columns[0] if len(gdf.columns) > 0 else None
+                if display_field is None:
+                    st.warning("Highway layer does not contain a name field. Tooltips will be blank.")
+                    fields = []
+                    aliases = []
+                else:
+                    fields = [display_field, "Road Type"]
+                    aliases = ["Road Name", "Category"]
+            else:
+                fields = ["FULLNAME", "Road Type"]
+                aliases = ["Road Name", "Category"]
+
             m.add_geojson(
                 highways,
                 layer_name="Major Roads",
                 style_function=highway_style,
                 info_mode="on_hover",
-                fields=["FULLNAME", "Road Type"],
-                aliases=["Road Name", "Category"],  # Fixed label
+                fields=fields,
+                aliases=aliases,
             )
 
-            # ✅ Auto-fit bounds to roads
-            if not gdf.empty:
-                bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
-                m.zoom_to_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+            # Auto-fit bounds to the road geometries (only if valid)
+            try:
+                if not gdf.empty:
+                    bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+                    if bounds_are_valid(bounds):
+                        # leafmap/folium expectation: [[south, west], [north, east]]
+                        m.zoom_to_bounds([[float(bounds[1]), float(bounds[0])], [float(bounds[3]), float(bounds[2])]])
+                    else:
+                        st.info("Roads loaded but bounds are not valid — skipping auto-zoom for roads.")
+                else:
+                    st.info("Road GeoDataFrame is empty — skipping auto-zoom for roads.")
+            except Exception as e:
+                st.warning(f"Auto-fit failed for highway layer: {e}")
 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
 
     # ------------------------
-    # Add MBTA Layer (unchanged except auto-fit)
+    # Add MBTA Layer (unchanged logic, but robust coord handling)
     # ------------------------
     elif mbta_mode:
         line_colors = {
@@ -913,7 +967,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
         try:
             with open("routes.geojson", "r", encoding="utf-8") as f:
                 routes = json.load(f)
-            for feat in routes["features"]:
+            for feat in routes.get("features", []):
                 props = feat.get("properties", {})
                 route_id = str(props.get("id") or props.get("route_id", "")).lower()
                 name = props.get("name", "Unknown Line")
@@ -950,27 +1004,59 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 aliases=["Station", "Lines"],
             )
 
-            # ✅ Auto-fit bounds to MBTA stations if available
-            if stops and "features" in stops and len(stops["features"]) > 0:
+            # Auto-fit to stations if coordinates exist and are valid
+            try:
+                features = stops.get("features", []) if isinstance(stops, dict) else []
                 coords = []
-                for f in stops["features"]:
+                for f in features:
                     geom = f.get("geometry", {})
-                    if geom.get("type") == "Point":
-                        coords.append(geom["coordinates"])
+                    if not geom:
+                        continue
+                    gtype = geom.get("type")
+                    if gtype == "Point":
+                        coords_raw = geom.get("coordinates")
+                        if isinstance(coords_raw, (list, tuple)) and len(coords_raw) >= 2:
+                            lon, lat = coords_raw[0], coords_raw[1]
+                            if (isinstance(lon, (int, float)) and isinstance(lat, (int, float))
+                                    and math.isfinite(lon) and math.isfinite(lat)):
+                                coords.append((lon, lat))
                 if coords:
                     xs, ys = zip(*coords)
-                    m.zoom_to_bounds([[min(ys), min(xs)], [max(ys), max(xs)]])
+                    # check valid ranges
+                    minx, maxx = min(xs), max(xs)
+                    miny, maxy = min(ys), max(ys)
+                    if (minx < maxx) and (miny < maxy):
+                        m.zoom_to_bounds([[float(miny), float(minx)], [float(maxy), float(maxx)]])
+                else:
+                    st.info("No valid station coordinates found for MBTA auto-fit.")
+            except Exception as e:
+                st.warning(f"Auto-fit failed for MBTA stations: {e}")
 
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
     else:
-        # ✅ Auto-fit bounds for state-wide ZIPs
+        # State-wide view: auto-fit to the ZIP polygons that are visible (and optionally limit to MBTA_ZIPS if filtered)
         try:
-            # Convert GeoJSON to GeoDataFrame temporarily for bounds
-            gdf_zip = gpd.GeoDataFrame.from_features(geojson["features"], crs="EPSG:4326")
-            bounds = gdf_zip.total_bounds
-            m.zoom_to_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+            features = geojson.get("features", [])
+            if not features:
+                st.info("ZIP geojson has no features to auto-fit.")
+            else:
+                # Build GeoDataFrame from only the visible features (those not filtered to transparent)
+                # We will include features that are not intentionally hidden (i.e., their ZCTA present)
+                try:
+                    # Convert full geojson features to GeoDataFrame
+                    gdf_zip = gpd.GeoDataFrame.from_features(features, crs="EPSG:4326")
+                    if not gdf_zip.empty:
+                        bounds = gdf_zip.total_bounds  # [minx, miny, maxx, maxy]
+                        if bounds_are_valid(bounds):
+                            m.zoom_to_bounds([[float(bounds[1]), float(bounds[0])], [float(bounds[3]), float(bounds[2])]])
+                        else:
+                            st.info("ZIP polygons loaded but bounds are not valid — skipping auto-zoom.")
+                    else:
+                        st.info("ZIP GeoDataFrame is empty — skipping auto-zoom.")
+                except Exception as e:
+                    st.warning(f"Auto-fit failed: {e}")
         except Exception as e:
             st.warning(f"Auto-fit failed: {e}")
 

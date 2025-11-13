@@ -726,6 +726,7 @@ import leafmap.foliumap as leafmap
 import branca.colormap as cm
 import json
 import geopandas as gpd
+from shapely.geometry import LineString, Point
 
 # ---------------------------------------------------------
 # Streamlit Page Setup
@@ -801,14 +802,13 @@ geojson_data = load_geojson()
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
 
-    # Set view for Greater Boston vs State-wide
+    # Center and zoom adjustments
     if highway_mode or mbta_mode:
-        # Focus on Greater Boston
         m = leafmap.Map(center=[42.36, -71.05], zoom=10, locate_control=False, draw_control=False, measure_control=False)
     else:
         m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
 
-    # Color scale
+    # Color scale for ZIP polygons
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
     if max_val == min_val:
@@ -868,8 +868,6 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             "silver": "#8D8D8D", "sl1": "#8D8D8D", "sl2": "#8D8D8D", "sl4": "#8D8D8D", "sl5": "#8D8D8D",
             "mattapan": "#DA291C",
         }
-
-        # LINES
         try:
             with open("routes.geojson", "r", encoding="utf-8") as f:
                 routes = json.load(f)
@@ -885,12 +883,9 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 )
         except Exception as e:
             st.warning(f"MBTA lines failed: {e}")
-
-        # STATIONS
         try:
             with open("stops.geojson", "r", encoding="utf-8") as f:
                 stops = json.load(f)
-
             def station_style(feature):
                 lines = feature["properties"].get("lines", [])
                 primary = next((l for l in lines if l in line_colors), "silver")
@@ -901,7 +896,6 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                     "radius": 6,
                     "fillOpacity": 0.9,
                 }
-
             m.add_geojson(
                 stops,
                 layer_name="MBTA Stations",
@@ -914,35 +908,28 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # Add Highway Layer
+    # Add Highway Layer + Markers
     # ------------------------
     elif highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
 
-            # Reproject to EPSG:4326 (lat/lon)
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Keep only primary + secondary roads for clarity
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
-
-            # Rename values for better clarity
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].replace({
                 "Primary Road": "Highway",
                 "Secondary Road": "Main Road"
             })
 
-            # Convert to GeoJSON for Leafmap
             highways = json.loads(gdf.to_json())
 
             def highway_style(feature):
                 ftype = feature["properties"].get("FEATURE_TY", "")
-                # Blue for highways, green for main roads
                 color = "#0047AB" if ftype == "Primary Road" else "#008000"
                 return {"color": color, "weight": 3, "opacity": 0.9}
 
-            # Add highways to the map
             m.add_geojson(
                 highways,
                 layer_name="Major Roads",
@@ -951,6 +938,26 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 fields=["FULLNAME", "ROAD_TYPE"],
                 aliases=["Road Name", "Road Type"],
             )
+
+            # --- Add markers/shields for highways ---
+            gdf = gdf[gdf.geometry.type == "LineString"]
+            gdf["centroid"] = gdf.geometry.apply(lambda x: x.centroid if isinstance(x, LineString) else None)
+            for _, row in gdf.iterrows():
+                if row["centroid"] is None:
+                    continue
+                name = row.get("FULLNAME", "Unnamed Road")
+                rtype = row.get("ROAD_TYPE", "Road")
+                coord = [row["centroid"].y, row["centroid"].x]
+
+                # Use emoji markers as simple shields
+                icon = "🛣️" if rtype == "Highway" else "🛤️"
+                label = f"{icon} {name} ({rtype})"
+
+                m.add_marker(location=coord, popup=label, tooltip=label)
+
+            # --- Force zoom to greater Boston bounding box ---
+            boston_bounds = [[42.05, -71.25], [42.55, -70.75]]
+            m.fit_bounds(boston_bounds)
 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")

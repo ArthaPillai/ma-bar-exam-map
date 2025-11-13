@@ -1,6 +1,8 @@
 streamlit
-leafmap
 pandas
-requests
+geopandas
+folium
 branca
+requests
 streamlit-folium
+numpy

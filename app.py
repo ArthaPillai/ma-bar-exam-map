@@ -798,13 +798,26 @@ geojson_data = load_geojson()
 # Build Map
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-    # Set initial view: Greater Boston (zoom 11) for MBTA or Highways, State-wide (zoom 8) otherwise
+    # === ZOOM & CENTER SETTINGS ===
     if mbta_mode or highway_mode:
-        m = leafmap.Map(center=[42.3601, -71.0589], zoom=11, locate_control=False, draw_control=False, measure_control=False)
+        # Greater Boston: centered on Boston, zoom 10.5 → perfect fit
+        center = [42.3601, -71.0589]
+        zoom = 10.5
     else:
-        m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
+        # State-wide: shows all of MA
+        center = [42.3601, -71.0589]
+        zoom = 8
 
-    # Color scale for examinees
+    m = leafmap.Map(
+        center=center,
+        zoom=zoom,
+        locate_control=False,
+        draw_control=False,
+        measure_control=False,
+        scroll_wheel_zoom=True
+    )
+
+    # Color scale
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
     if max_val == min_val:
@@ -855,7 +868,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     )
 
     # ------------------------
-    # Add MBTA Lines & Stations
+    # MBTA Lines & Stations
     # ------------------------
     if mbta_mode:
         line_colors = {
@@ -910,27 +923,24 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # Add Highway Layer (UPDATED)
+    # Highway Layer (Fixed Zoom + Green Secondary)
     # ------------------------
     elif highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
-
-            # Reproject if needed
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Keep only primary + secondary roads
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
 
-            # Map to user-friendly labels
+            # Friendly labels
             type_map = {
                 "Primary Road": "Interstate / Major Highway",
                 "Secondary Road": "State Route / Arterial"
             }
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(type_map)
 
-            # Clean road names: remove trailing direction, keep core name
+            # Clean name: remove trailing direction
             gdf["ROAD_NAME"] = (
                 gdf["FULLNAME"]
                 .str.replace(r"\s+(E|W|N|S|East|West|North|South)$", "", regex=True)
@@ -938,12 +948,11 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 .fillna("Unnamed Road")
             )
 
-            # Convert to GeoJSON
             highways = json.loads(gdf.to_json())
 
             def highway_style(feature):
                 ftype = feature["properties"].get("FEATURE_TY", "")
-                color = "#0047AB" if ftype == "Primary Road" else "#00843D"  # Green for secondary
+                color = "#0047AB" if ftype == "Primary Road" else "#00843D"  # Green
                 return {"color": color, "weight": 4, "opacity": 0.9}
 
             m.add_geojson(
@@ -961,7 +970,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     return m
 
 # ---------------------------------------------------------
-# Render Map
+# Render
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 highway_mode = (view_mode == "Greater Boston (Highways)")

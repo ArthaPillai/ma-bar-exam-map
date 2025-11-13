@@ -1107,7 +1107,7 @@ def get_shield_svg(route_type: str, number: str):
           <text x="18" y="22" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="black" text-anchor="middle">{number}</text>
         </svg>
         '''
-    else:  # MA or other
+    else:  # MA
         svg = f'''
         <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
           <rect x="4" y="4" width="28" height="28" rx="4" fill="#FFD700" stroke="black" stroke-width="2"/>
@@ -1257,7 +1257,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # HIGHWAYS + ROUTE SHIELDS (FIXED: Uses RTE_NUM or similar)
+    # HIGHWAYS + ROUTE SHIELDS (FIXED FOR YOUR DATA)
     # ------------------------
     elif highway_mode:
         try:
@@ -1267,43 +1267,24 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
 
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])].copy()
 
-            # === Find route number column ===
-            route_col = None
-            shield_col = None
-            possible_route_cols = ["RTE_NUM", "ROUTE", "RT_NUMBER", "SHIELD", "RTENUM", "ROUTE_NUM", "RTNUM"]
-            possible_shield_cols = ["SHIELD", "SHIELD_TYPE", "ROUTE_TYPE"]
+            # === Extract route from FULLNAME (your data format) ===
+            def extract_route(fullname):
+                if pd.isna(fullname):
+                    return None, None
+                text = str(fullname).upper()
+                # Match: "I- 95", "I- 190", "I 95"
+                i_match = re.search(r'\bI[-\s]+(\d+[A-Z]?)\b', text)
+                if i_match:
+                    return "I", i_match.group(1)
+                # Match: "ROUTE 202", "RT 9", "MA 3"
+                ma_match = re.search(r'\b(ROUTE|RT|MA)[-\s]+(\d+[A-Z]?)\b', text)
+                if ma_match:
+                    return "MA", ma_match.group(2)
+                return None, None
 
-            for col in possible_route_cols:
-                if col in gdf.columns:
-                    route_col = col
-                    break
-
-            for col in possible_shield_cols:
-                if col in gdf.columns:
-                    shield_col = col
-                    break
-
-            if not route_col:
-                st.warning("No route number column found. Tried: " + ", ".join(possible_route_cols))
-                return m
-
-            # Clean route number
-            gdf["ROUTE_NUM"] = gdf[route_col].astype(str).str.strip()
-            gdf["ROUTE_TYPE"] = "MA"  # default
-
-            # Try to get shield type
-            if shield_col and shield_col in gdf.columns:
-                gdf["ROUTE_TYPE"] = gdf[shield_col].astype(str).str.upper().map({
-                    "INTERSTATE": "I",
-                    "US": "US",
-                    "STATE": "MA",
-                    "MA": "MA"
-                }).fillna("MA")
-            else:
-                # Guess from number
-                gdf["ROUTE_TYPE"] = gdf["ROUTE_NUM"].apply(
-                    lambda x: "I" if str(x).startswith(("9", "8", "4", "2", "1")) and len(str(x)) >= 2 else "MA"
-                )
+            gdf[["ROUTE_TYPE", "ROUTE_NUM"]] = gdf["FULLNAME"].apply(
+                lambda x: pd.Series(extract_route(x))
+            )
 
             # Clean display name
             gdf["ROAD_NAME"] = gdf["FULLNAME"].fillna("Unnamed Road").str.strip()
@@ -1339,20 +1320,20 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             matched = []
 
             for _, row in gdf.iterrows():
-                rtype = row["ROUTE_TYPE"]
-                rnum = row["ROUTE_NUM"]
-                if pd.isna(rnum) or rnum in ["", "0", "nan"]:
+                rtype = row.get("ROUTE_TYPE")
+                rnum = row.get("ROUTE_NUM")
+                if pd.isna(rnum) or str(rnum).strip() in ["", "nan", "0"]:
                     continue
 
                 route_key = f"{rtype}-{rnum}"
-                matched.append(f"{route_key}: {row['ROAD_NAME'][:40]}...")
+                matched.append(f"{route_key}: {row['ROAD_NAME'][:50]}...")
 
                 line = row.geometry
                 if not isinstance(line, LineString) or line.is_empty:
                     continue
 
                 length = line.length
-                step = max(3000, length / 10)  # ~3km or 10 points
+                step = max(4000, length / 8)  # ~4km or 8 points
                 for dist in [step * i for i in range(int(length / step) + 1)]:
                     point = line.interpolate(dist)
                     lat, lon = round(point.y, 5), round(point.x, 5)
@@ -1376,14 +1357,12 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
 
             # Debug
             with st.expander("Debug: Route Shields (Highways mode)"):
-                st.write(f"**Found route column:** `{route_col}`")
-                if shield_col:
-                    st.write(f"**Shield type column:** `{shield_col}`")
+                st.success("**Using FULLNAME extraction** (e.g., 'I- 95')")
                 st.write("**Sample matched routes:**")
-                for line in matched[:15]:
+                for line in matched[:20]:
                     st.write(line)
                 if not matched:
-                    st.warning("No valid route numbers found.")
+                    st.warning("No routes found in FULLNAME. Check for 'I- 95' or 'ROUTE 9'.")
 
         except Exception as e:
             st.error(f"Highway layer error: {e}")

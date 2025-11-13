@@ -474,250 +474,6 @@
 
 #version 3
 
-# app.py
-import streamlit as st
-import pandas as pd
-import requests
-import leafmap.foliumap as leafmap
-import branca.colormap as cm
-import json
-import geopandas as gpd
-
-# ---------------------------------------------------------
-# Streamlit Page Setup
-# ---------------------------------------------------------
-st.set_page_config(page_title="Massachusetts Bar Examinee Map", layout="wide")
-
-# ---------------------------------------------------------
-# MBTA subway-served ZIP codes
-# ---------------------------------------------------------
-MBTA_ZIPS = {
-    "02108", "02109", "02110", "02111", "02113", "02114", "02115", "02116", "02118", "02119", "02120", "02121",
-    "02122", "02124", "02125", "02126", "02127", "02128", "02129", "02130", "02131", "02132", "02134", "02135",
-    "02136", "02138", "02139", "02140", "02141", "02142", "02143", "02144", "02145", "02148", "02149", "02151",
-    "02152", "02155", "02163", "02169", "02171", "02176", "02180", "02184", "02186", "02188", "02190", "02191",
-    "02215", "02445", "02446", "02453", "02458", "02459", "02467", "02472"
-}
-
-# ---------------------------------------------------------
-# Sidebar Controls
-# ---------------------------------------------------------
-layer_options = {
-    "All years": "map_data_all.csv",
-    "2025": "map_data_2025.csv",
-    "2024": "map_data_2024.csv",
-    "2023": "map_data_2023.csv",
-}
-
-selected_layer = st.sidebar.selectbox("Select data layer", options=list(layer_options.keys()), index=0)
-
-view_mode = st.sidebar.radio(
-    "Map view",
-    ["State-wide", "Greater Boston (MBTA subway)", "Greater Boston (Highways)"],
-    index=0
-)
-
-# ---------------------------------------------------------
-# Dynamic Title
-# ---------------------------------------------------------
-title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
-st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
-st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}*  \nHover over ZIPs. Click stations/highways for details.")
-
-# ---------------------------------------------------------
-# Load Examinee Data
-# ---------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def load_examinee_data(csv_name: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_name, dtype={"zip": str})
-    df["zip"] = df["zip"].str.zfill(5)
-    agg = df.groupby("zip").agg(
-        area=("area", lambda x: ", ".join(sorted(set(x)))),
-        sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
-        count=("examinees", "sum"),
-    ).reset_index()
-    return agg
-
-agg = load_examinee_data(layer_options[selected_layer])
-
-# ---------------------------------------------------------
-# Load MA ZIP GeoJSON
-# ---------------------------------------------------------
-@st.cache_data(show_spinner=False)
-def load_geojson():
-    url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
-    r = requests.get(url)
-    r.raise_for_status()
-    return r.json()
-
-geojson_data = load_geojson()
-
-# ---------------------------------------------------------
-# Build Map
-# ---------------------------------------------------------
-def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-
-    # Set view for Greater Boston vs State-wide
-    if highway_mode or mbta_mode:
-        m = leafmap.Map(center=[42.30, -71.05], zoom=9, locate_control=False, draw_control=False, measure_control=False)
-    else:
-        m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
-
-    # Color scale
-    min_val = agg_df["count"].min()
-    max_val = agg_df["count"].max()
-    if max_val == min_val:
-        max_val = min_val + 1
-    colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
-    colormap.caption = "Number of Examinees"
-    colormap.add_to(m)
-
-    value_dict = agg_df.set_index("zip").to_dict(orient="index")
-
-    def style_function(feature):
-        zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
-        if (mbta_mode or highway_mode) and zip_code not in MBTA_ZIPS:
-            return {"fillColor": "transparent", "color": "transparent", "weight": 0}
-        val = value_dict.get(zip_code, {}).get("count", 0)
-        return {
-            "fillColor": colormap(val) if val > 0 else "#d9d9d9",
-            "color": "black",
-            "weight": 0.3,
-            "fillOpacity": 0.7,
-        }
-
-    # Add ZIP polygons
-    for feature in geojson["features"]:
-        z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
-        if z in value_dict:
-            i = value_dict[z]
-            feature["properties"].update({
-                "ZIP Code": z,
-                "Area": i["area"],
-                "Sub_Area": i["sub_area"],
-                "Examinees": i["count"]
-            })
-        else:
-            feature["properties"].update({
-                "ZIP Code": z,
-                "Area": "No data",
-                "Sub_Area": "-",
-                "Examinees": 0
-            })
-
-    m.add_geojson(
-        geojson,
-        style_function=style_function,
-        info_mode="on_hover",
-        fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
-        aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
-    )
-
-    # ------------------------
-    # Add MBTA lines & stations
-    # ------------------------
-    if mbta_mode:
-        line_colors = {
-            "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
-            "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
-            "silver": "#8D8D8D", "sl1": "#8D8D8D", "sl2": "#8D8D8D", "sl4": "#8D8D8D", "sl5": "#8D8D8D",
-            "mattapan": "#DA291C",
-        }
-
-        # LINES
-        try:
-            with open("routes.geojson", "r", encoding="utf-8") as f:
-                routes = json.load(f)
-            for feat in routes["features"]:
-                props = feat.get("properties", {})
-                route_id = str(props.get("id") or props.get("route_id", "")).lower()
-                name = props.get("name", "Unknown Line")
-                color = line_colors.get(route_id, "#666666")
-                m.add_geojson(
-                    {"type": "FeatureCollection", "features": [feat]},
-                    style={"color": color, "weight": 5, "opacity": 0.9},
-                    layer_name=name,
-                )
-        except Exception as e:
-            st.warning(f"MBTA lines failed: {e}")
-
-        # STATIONS
-        try:
-            with open("stops.geojson", "r", encoding="utf-8") as f:
-                stops = json.load(f)
-
-            def station_style(feature):
-                lines = feature["properties"].get("lines", [])
-                primary = next((l for l in lines if l in line_colors), "silver")
-                return {
-                    "fillColor": line_colors.get(primary, "#666666"),
-                    "color": "white",
-                    "weight": 1.5,
-                    "radius": 6,
-                    "fillOpacity": 0.9,
-                }
-
-            m.add_geojson(
-                stops,
-                layer_name="MBTA Stations",
-                style_callback=station_style,
-                info_mode="on_click",
-                fields=["name", "lines"],
-                aliases=["Station", "Lines"],
-            )
-        except Exception as e:
-            st.warning(f"MBTA stations failed: {e}")
-
-    # ------------------------
-    # Add Highway Layer
-    # ------------------------
-    elif highway_mode:
-        try:
-            import geopandas as gpd
-            gdf = gpd.read_file("ma_major_roads.geojson")
-    
-            # Reproject to EPSG:4326 (lat/lon)
-            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
-                gdf = gdf.to_crs(epsg=4326)
-    
-            # Keep only primary + secondary roads for clarity
-            gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
-    
-            # Convert to GeoJSON for Leafmap
-            highways = json.loads(gdf.to_json())
-    
-            def highway_style(feature):
-                ftype = feature["properties"].get("FEATURE_TY", "")
-                color = "#0047AB" if ftype == "Primary Road" else "#FF8C00"
-                return {"color": color, "weight": 3, "opacity": 0.9}
-    
-            m.add_geojson(
-                highways,
-                layer_name="Major Roads",
-                style_function=highway_style,
-                info_mode="on_hover",
-                fields=["FULLNAME", "FEATURE_TY"],
-                aliases=["Road Name", "Type"],
-            )
-        except Exception as e:
-            st.warning(f"Highway layer failed: {e}")
-
-    m.add_layer_control()
-    return m
-
-# ---------------------------------------------------------
-# Render
-# ---------------------------------------------------------
-mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
-highway_mode = (view_mode == "Greater Boston (Highways)")
-
-with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
-    m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
-    m.to_streamlit(width=1500, height=800)
-
-
-#version 4
-
 # # app.py
 # import streamlit as st
 # import pandas as pd
@@ -797,14 +553,9 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 # geojson_data = load_geojson()
 
 # # ---------------------------------------------------------
-# # Build Map – fully working MBTA + highway shields for all routes
+# # Build Map
 # # ---------------------------------------------------------
 # def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-#     import json
-#     import re
-#     import geopandas as gpd
-#     import shapely.geometry as sg
-#     import folium   # for DivIcon markers
 
 #     # Set view for Greater Boston vs State-wide
 #     if highway_mode or mbta_mode:
@@ -820,7 +571,9 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #     colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
 #     colormap.caption = "Number of Examinees"
 #     colormap.add_to(m)
+
 #     value_dict = agg_df.set_index("zip").to_dict(orient="index")
+
 #     def style_function(feature):
 #         zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
 #         if (mbta_mode or highway_mode) and zip_code not in MBTA_ZIPS:
@@ -832,6 +585,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #             "weight": 0.3,
 #             "fillOpacity": 0.7,
 #         }
+
 #     # Add ZIP polygons
 #     for feature in geojson["features"]:
 #         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
@@ -850,6 +604,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #                 "Sub_Area": "-",
 #                 "Examinees": 0
 #             })
+
 #     m.add_geojson(
 #         geojson,
 #         style_function=style_function,
@@ -857,6 +612,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #         fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
 #         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
 #     )
+
 #     # ------------------------
 #     # Add MBTA lines & stations
 #     # ------------------------
@@ -867,6 +623,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #             "silver": "#8D8D8D", "sl1": "#8D8D8D", "sl2": "#8D8D8D", "sl4": "#8D8D8D", "sl5": "#8D8D8D",
 #             "mattapan": "#DA291C",
 #         }
+
 #         # LINES
 #         try:
 #             with open("routes.geojson", "r", encoding="utf-8") as f:
@@ -883,10 +640,12 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #                 )
 #         except Exception as e:
 #             st.warning(f"MBTA lines failed: {e}")
+
 #         # STATIONS
 #         try:
 #             with open("stops.geojson", "r", encoding="utf-8") as f:
 #                 stops = json.load(f)
+
 #             def station_style(feature):
 #                 lines = feature["properties"].get("lines", [])
 #                 primary = next((l for l in lines if l in line_colors), "silver")
@@ -897,6 +656,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #                     "radius": 6,
 #                     "fillOpacity": 0.9,
 #                 }
+
 #             m.add_geojson(
 #                 stops,
 #                 layer_name="MBTA Stations",
@@ -907,178 +667,41 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #             )
 #         except Exception as e:
 #             st.warning(f"MBTA stations failed: {e}")
-            
+
 #     # ------------------------
-#     # Add Highway Layer – NO GeoDataFrame (CRS error gone)
+#     # Add Highway Layer
 #     # ------------------------
 #     elif highway_mode:
 #         try:
-#             # ------------------------------------------------------------------
-#             # 1. Load the file as a plain dict (no GeoPandas → no CRS problem)
-#             # ------------------------------------------------------------------
-#             with open("ma_major_roads.geojson", "r", encoding="utf-8") as f:
-#                 roads_geojson = json.load(f)               # <-- pure dict
+#             import geopandas as gpd
+#             gdf = gpd.read_file("ma_major_roads.geojson")
     
-#             # ------------------------------------------------------------------
-#             # 2. Keep only Primary / Secondary roads
-#             # ------------------------------------------------------------------
-#             filtered_features = []
-#             for feat in roads_geojson.get("features", []):
-#                 ftype = feat.get("properties", {}).get("FEATURE_TY", "")
-#                 if ftype in ("Primary Road", "Secondary Road"):
-#                     filtered_features.append(feat)
+#             # Reproject to EPSG:4326 (lat/lon)
+#             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
+#                 gdf = gdf.to_crs(epsg=4326)
     
-#             # ------------------------------------------------------------------
-#             # 3. Extract route label (I-90, US-1, MA-2, Route 9 …)
-#             # ------------------------------------------------------------------
-#             route_rx = re.compile(r"\b(I\b|I-|US\b|US-|MA\b|MA-|Rt\.\s?|Route\s?)(\d+[A-Z]?)\b", re.I)
+#             # Keep only primary + secondary roads for clarity
+#             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
     
-#             def extract_route(txt):
-#                 if not txt: return None
-#                 m = route_rx.search(txt)
-#                 if m:
-#                     prefix = m.group(1).upper()
-#                     number = m.group(2).upper()
-#                     if prefix in ("I", "I-"):
-#                         return f"I-{number}"
-#                     if prefix in ("US", "US-"):
-#                         return f"US-{number}"
-#                     if prefix in ("MA", "MA-", "RT.", "ROUTE"):
-#                         return f"MA-{number}" if prefix.startswith("MA") else f"ROUTE {number}"
-#                 return None
+#             # Convert to GeoJSON for Leafmap
+#             highways = json.loads(gdf.to_json())
     
-#             # Add route_label to each feature's properties
-#             for feat in filtered_features:
-#                 fullname = feat.get("properties", {}).get("FULLNAME", "")
-#                 label = extract_route(fullname)
-#                 feat["properties"]["route_label"] = label
-    
-#             # Remove features without a route label
-#             highways_features = [f for f in filtered_features if f["properties"]["route_label"]]
-    
-#             # ------------------------------------------------------------------
-#             # 4. ROAD LINES (highlighted)
-#             # ------------------------------------------------------------------
-#             highways_geojson = {"type": "FeatureCollection", "features": highways_features}
-    
-#             line_colors = {
-#                 "I-": "#FFD700",      # gold
-#                 "US-": "#FF8C00",     # orange
-#                 "MA-": "#32CD32",     # lime green
-#                 "ROUTE": "#32CD32",
-#             }
-    
-#             def line_style(feature):
-#                 route = feature["properties"].get("route_label")
-#                 if route:
-#                     prefix = next((p for p in line_colors if route.startswith(p)), None)
-#                     if prefix:
-#                         return {"color": line_colors[prefix], "weight": 5, "opacity": 1.0}
-#                 # default
+#             def highway_style(feature):
 #                 ftype = feature["properties"].get("FEATURE_TY", "")
-#                 col = "#0047AB" if ftype == "Primary Road" else "#666666"
-#                 return {"color": col, "weight": 3, "opacity": 0.9}
+#                 color = "#0047AB" if ftype == "Primary Road" else "#FF8C00"
+#                 return {"color": color, "weight": 3, "opacity": 0.9}
     
 #             m.add_geojson(
-#                 highways_geojson,
+#                 highways,
 #                 layer_name="Major Roads",
-#                 style_function=line_style,
+#                 style_function=highway_style,
 #                 info_mode="on_hover",
-#                 fields=["FULLNAME", "FEATURE_TY", "route_label"],
-#                 aliases=["Road Name", "Type", "Route"],
+#                 fields=["FULLNAME", "FEATURE_TY"],
+#                 aliases=["Road Name", "Type"],
 #             )
-    
-#             # ------------------------------------------------------------------
-#             # 5. ONE SHIELD PER ROUTE – on a visible point of the longest segment
-#             # ------------------------------------------------------------------
-#             # Group by route_label → keep the *longest* LineString
-#             route_to_geom = {}
-#             for feat in highways_features:
-#                 route = feat["properties"]["route_label"]
-#                 geom = feat["geometry"]
-#                 if geom["type"] not in ("LineString", "MultiLineString"):
-#                     continue
-#                 # Compute length (in degrees – fine for ordering)
-#                 coords = geom["coordinates"]
-#                 if geom["type"] == "LineString":
-#                     length = sum(
-#                         ((coords[i+1][0]-coords[i][0])**2 + (coords[i+1][1]-coords[i][1])**2)**0.5
-#                         for i in range(len(coords)-1)
-#                     )
-#                     line = coords
-#                 else:  # MultiLineString
-#                     longest_sub = None
-#                     longest_len = -1
-#                     for sub in coords:
-#                         sub_len = sum(
-#                             ((sub[i+1][0]-sub[i][0])**2 + (sub[i+1][1]-sub[i][1])**2)**0.5
-#                             for i in range(len(sub)-1)
-#                         )
-#                         if sub_len > longest_len:
-#                             longest_len = sub_len
-#                             longest_sub = sub
-#                     if longest_sub is None: continue
-#                     length = longest_len
-#                     line = longest_sub
-    
-#                 if route not in route_to_geom or length > route_to_geom[route][1]:
-#                     route_to_geom[route] = (line, length)
-    
-#             # Map bounds for visibility
-#             bounds = m.get_bounds()
-#             south, west = bounds[0]
-#             north, east = bounds[1]
-#             view_box = sg.box(west, south, east, north)
-    
-#             def point_in_view(lon, lat):
-#                 return view_box.contains(sg.Point(lon, lat))
-    
-#             # Helper: sample points along a line
-#             def sample_line(line_coords, n=20):
-#                 if len(line_coords) < 2: return []
-#                 points = []
-#                 for i in range(n + 1):
-#                     frac = i / n
-#                     idx = int(frac * (len(line_coords) - 1))
-#                     lon = line_coords[idx][0] + frac * (line_coords[idx+1][0] - line_coords[idx][0])
-#                     lat = line_coords[idx][1] + frac * (line_coords[idx+1][1] - line_coords[idx][1])
-#                     points.append((lon, lat))
-#                 return points
-    
-#             # Add shields
-#             for route, (line_coords, _) in route_to_geom.items():
-#                 # Find first point inside view
-#                 for lon, lat in sample_line(line_coords):
-#                     if point_in_view(lon, lat):
-#                         # colour
-#                         prefix = next((p for p in line_colors if route.startswith(p)),
-#                                       "ROUTE" if "ROUTE" in route else "MA-")
-#                         bg = line_colors[prefix]
-    
-#                         # HTML shield
-#                         html = f"""
-#                         <div style="
-#                             background:{bg}; color:white; font-weight:bold;
-#                             font-family:Arial,sans-serif; font-size:13px;
-#                             padding:3px 6px; border-radius:5px; border:1px solid #333;
-#                             white-space:nowrap; box-shadow:0 2px 4px rgba(0,0,0,0.5);
-#                             transform:translateY(-10px);
-#                         ">{route}</div>
-#                         """
-#                         icon = folium.DivIcon(html=html, icon_size=(None, None))
-#                         folium.Marker(
-#                             location=[lat, lon],
-#                             icon=icon,
-#                             tooltip=route,
-#                             popup=folium.Popup(f"<b>{route}</b><br/>Major highway route", max_width=150)
-#                         ).add_to(m)
-#                         break   # one shield per route
-    
 #         except Exception as e:
 #             st.warning(f"Highway layer failed: {e}")
-#             import traceback
-#             traceback.print_exc()
-        
+
 #     m.add_layer_control()
 #     return m
 
@@ -1091,3 +714,248 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 # with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 #     m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
 #     m.to_streamlit(width=1500, height=800)
+
+
+#version 4
+
+# app.py
+import streamlit as st
+import pandas as pd
+import requests
+import leafmap.foliumap as leafmap
+import branca.colormap as cm
+import json
+import geopandas as gpd
+
+# ---------------------------------------------------------
+# Streamlit Page Setup
+# ---------------------------------------------------------
+st.set_page_config(page_title="Massachusetts Bar Examinee Map", layout="wide")
+
+# ---------------------------------------------------------
+# MBTA subway-served ZIP codes
+# ---------------------------------------------------------
+MBTA_ZIPS = {
+    "02108", "02109", "02110", "02111", "02113", "02114", "02115", "02116", "02118", "02119", "02120", "02121",
+    "02122", "02124", "02125", "02126", "02127", "02128", "02129", "02130", "02131", "02132", "02134", "02135",
+    "02136", "02138", "02139", "02140", "02141", "02142", "02143", "02144", "02145", "02148", "02149", "02151",
+    "02152", "02155", "02163", "02169", "02171", "02176", "02180", "02184", "02186", "02188", "02190", "02191",
+    "02215", "02445", "02446", "02453", "02458", "02459", "02467", "02472"
+}
+
+# ---------------------------------------------------------
+# Sidebar Controls
+# ---------------------------------------------------------
+layer_options = {
+    "All years": "map_data_all.csv",
+    "2025": "map_data_2025.csv",
+    "2024": "map_data_2024.csv",
+    "2023": "map_data_2023.csv",
+}
+selected_layer = st.sidebar.selectbox("Select data layer", options=list(layer_options.keys()), index=0)
+view_mode = st.sidebar.radio(
+    "Map view",
+    ["State-wide", "Greater Boston (MBTA subway)", "Greater Boston (Highways)"],
+    index=0
+)
+
+# ---------------------------------------------------------
+# Dynamic Title
+# ---------------------------------------------------------
+title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
+st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
+st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Click highways for details.")
+
+# ---------------------------------------------------------
+# Load Examinee Data
+# ---------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_examinee_data(csv_name: str) -> pd.DataFrame:
+    df = pd.read_csv(csv_name, dtype={"zip": str})
+    df["zip"] = df["zip"].str.zfill(5)
+    agg = df.groupby("zip").agg(
+        area=("area", lambda x: ", ".join(sorted(set(x)))),
+        sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
+        count=("examinees", "sum"),
+    ).reset_index()
+    return agg
+
+agg = load_examinee_data(layer_options[selected_layer])
+
+# ---------------------------------------------------------
+# Load MA ZIP GeoJSON
+# ---------------------------------------------------------
+@st.cache_data(show_spinner=False)
+def load_geojson():
+    url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
+    r = requests.get(url)
+    r.raise_for_status()
+    return r.json()
+
+geojson_data = load_geojson()
+
+# ---------------------------------------------------------
+# Build Map
+# ---------------------------------------------------------
+def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
+    # Set view: Zoom in tightly on Greater Boston for both MBTA and Highways
+    if mbta_mode or highway_mode:
+        m = leafmap.Map(center=[42.335, -71.08], zoom=11, locate_control=False, draw_control=False, measure_control=False)
+    else:
+        m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
+
+    # Color scale
+    min_val = agg_df["count"].min()
+    max_val = agg_df["count"].max()
+    if max_val == min_val:
+        max_val = min_val + 1
+    colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
+    colormap.caption = "Number of Examinees"
+    colormap.add_to(m)
+
+    value_dict = agg_df.set_index("zip").to_dict(orient="index")
+
+    def style_function(feature):
+        zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
+        if (mbta_mode or highway_mode) and zip_code not in MBTA_ZIPS:
+            return {"fillColor": "transparent", "color": "transparent", "weight": 0}
+        val = value_dict.get(zip_code, {}).get("count", 0)
+        return {
+            "fillColor": colormap(val) if val > 0 else "#d9d9d9",
+            "color": "black",
+            "weight": 0.3,
+            "fillOpacity": 0.7,
+        }
+
+    # Add ZIP polygons
+    for feature in geojson["features"]:
+        z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
+        if z in value_dict:
+            i = value_dict[z]
+            feature["properties"].update({
+                "ZIP Code": z,
+                "Area": i["area"],
+                "Sub_Area": i["sub_area"],
+                "Examinees": i["count"]
+            })
+        else:
+            feature["properties"].update({
+                "ZIP Code": z,
+                "Area": "No data",
+                "Sub_Area": "-",
+                "Examinees": 0
+            })
+
+    m.add_geojson(
+        geojson,
+        style_function=style_function,
+        info_mode="on_hover",
+        fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
+        aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
+    )
+
+    # ------------------------
+    # Add MBTA lines & stations
+    # ------------------------
+    if mbta_mode:
+        line_colors = {
+            "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
+            "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
+            "silver": "#8D8D8D", "sl1": "#8D8D8D", "sl2": "#8D8D8D", "sl4": "#8D8D8D", "sl5": "#8D8D8D",
+            "mattapan": "#DA291C",
+        }
+        # LINES
+        try:
+            with open("routes.geojson", "r", encoding="utf-8") as f:
+                routes = json.load(f)
+            for feat in routes["features"]:
+                props = feat.get("properties", {})
+                route_id = str(props.get("id") or props.get("route_id", "")).lower()
+                name = props.get("name", "Unknown Line")
+                color = line_colors.get(route_id, "#666666")
+                m.add_geojson(
+                    {"type": "FeatureCollection", "features": [feat]},
+                    style={"color": color, "weight": 5, "opacity": 0.9},
+                    layer_name=name,
+                )
+        except Exception as e:
+            st.warning(f"MBTA lines failed: {e}")
+
+        # STATIONS
+        try:
+            with open("stops.geojson", "r", encoding="utf-8") as f:
+                stops = json.load(f)
+            def station_style(feature):
+                lines = feature["properties"].get("lines", [])
+                primary = next((l for l in lines if l in line_colors), "silver")
+                return {
+                    "fillColor": line_colors.get(primary, "#666666"),
+                    "color": "white",
+                    "weight": 1.5,
+                    "radius": 6,
+                    "fillOpacity": 0.9,
+                }
+            m.add_geojson(
+                stops,
+                layer_name="MBTA Stations",
+                style_callback=station_style,
+                info_mode="on_click",
+                fields=["name", "lines"],
+                aliases=["Station", "Lines"],
+            )
+        except Exception as e:
+            st.warning(f"MBTA stations failed: {e}")
+
+    # ------------------------
+    # Add Highway Layer
+    # ------------------------
+    elif highway_mode:
+        try:
+            gdf = gpd.read_file("ma_major_roads.geojson")
+   
+            # Reproject to EPSG:4326 (lat/lon)
+            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
+                gdf = gdf.to_crs(epsg=4326)
+   
+            # Keep only primary + secondary roads
+            gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
+   
+            # Map FEATURE_TY to user-friendly names
+            road_type_map = {
+                "Primary Road": "Highway",
+                "Secondary Road": "Major Road"
+            }
+            gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(road_type_map)
+   
+            # Convert to GeoJSON
+            highways = json.loads(gdf.to_json())
+   
+            def highway_style(feature):
+                ftype = feature["properties"].get("FEATURE_TY", "")
+                # Primary = Blue, Secondary = Green
+                color = "#0047AB" if ftype == "Primary Road" else "#008000"  # Dark green for secondary
+                return {"color": color, "weight": 4, "opacity": 0.9}
+   
+            m.add_geojson(
+                highways,
+                layer_name="Major Roads",
+                style_function=highway_style,
+                info_mode="on_click",  # Click for clarity (optional)
+                fields=["FULLNAME", "ROAD_TYPE"],
+                aliases=["Road Name", "Road Type"],
+            )
+        except Exception as e:
+            st.warning(f"Highway layer failed: {e}")
+
+    m.add_layer_control()
+    return m
+
+# ---------------------------------------------------------
+# Render
+# ---------------------------------------------------------
+mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
+highway_mode = (view_mode == "Greater Boston (Highways)")
+
+with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
+    m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
+    m.to_streamlit(width=1500, height=700)

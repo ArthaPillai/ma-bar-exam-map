@@ -1015,10 +1015,11 @@ import leafmap.foliumap as leafmap
 import branca.colormap as cm
 import json
 import geopandas as gpd
-from shapely.geometry import shape
+from shapely.geometry import shape, LineString
 import re
 import folium
-from folium import DivIcon
+import base64
+from io import BytesIO
 
 # ---------------------------------------------------------
 # Streamlit Page Setup
@@ -1088,36 +1089,38 @@ def load_geojson():
 geojson_data = load_geojson()
 
 # ---------------------------------------------------------
-# Route Shield SVG Templates
+# Route Shield SVG Templates (Base64 Encoded)
 # ---------------------------------------------------------
 def get_shield_svg(route_type: str, number: str):
-    """Return SVG string for route shield"""
+    """Return base64 SVG for route shield"""
     number = number.strip()
     if route_type == "I":
-        # Interstate: Red/White/Blue shield
-        return f'''
+        svg_content = f'''
         <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
           <path d="M18 2 L2 18 L18 34 L34 18 Z" fill="#C41E3A"/>
-          <path d="M18 2 L2 18 L18 34" fill="#0033A0"/>
+          <path d="M18 2 L2 18 L18 34" fill="#0033A0" stroke="white" stroke-width="2"/>
           <text x="18" y="22" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="white" text-anchor="middle">{number}</text>
         </svg>
         '''
     elif route_type == "US":
-        # US Route: Black on White shield
-        return f'''
+        svg_content = f'''
         <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
-          <path d="M10 6 L4 18 L10 30 L26 30 L32 18 L26 6 Z" fill="black"/>
-          <text x="18" y="22" font-family="Arial, sans-serif" font-size="13" font-weight="bold" fill="white" text-anchor="middle">{number}</text>
-        </svg>
-        '''
-    else:  # MA Route
-        # State Route: Black on Yellow
-        return f'''
-        <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
-          <rect x="4" y="6" width="28" height="24" rx="4" fill="#FFD700"/>
+          <rect x="4" y="4" width="28" height="28" rx="4" fill="white" stroke="black" stroke-width="2"/>
           <text x="18" y="22" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="black" text-anchor="middle">{number}</text>
         </svg>
         '''
+    else:  # MA Route
+        svg_content = f'''
+        <svg width="36" height="36" viewBox="0 0 36 36" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="28" height="28" rx="4" fill="#FFD700" stroke="black" stroke-width="2"/>
+          <text x="18" y="22" font-family="Arial, sans-serif" font-size="14" font-weight="bold" fill="black" text-anchor="middle">{number}</text>
+        </svg>
+        '''
+    
+    # Base64 encode for reliable Leaflet rendering
+    svg_bytes = svg_content.encode('utf-8')
+    b64_svg = base64.b64encode(svg_bytes).decode('utf-8')
+    return f'data:image/svg+xml;base64,{b64_svg}'
 
 # ---------------------------------------------------------
 # Build Map
@@ -1207,7 +1210,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
         m.fit_bounds(padded_bounds)
 
     # ------------------------
-    # MBTA
+    # MBTA (unchanged)
     # ------------------------
     if mbta_mode:
         line_colors = {
@@ -1260,7 +1263,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # HIGHWAYS + ROUTE SHIELDS
+    # HIGHWAYS + ROUTE SHIELDS (IMPROVED)
     # ------------------------
     elif highway_mode:
         try:
@@ -1270,30 +1273,33 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
 
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])].copy()
 
-            # Extract route type and number
+            # IMPROVED Route Extraction (handles more formats)
             def extract_route(fullname):
                 if not fullname or pd.isna(fullname):
                     return None, None
                 text = str(fullname).upper()
-                # Match I 90, I-90, Interstate 90
-                i_match = re.search(r'\bI[-\s]?(\d+[A-Z]?)\b', text)
+                # Interstate: I 90, I-90, INTERSTATE 90
+                i_match = re.search(r'\b(I-|INTERSTATE|I)\s*(\d+[A-Z]?)\b', text)
                 if i_match:
-                    return "I", i_match.group(1)
-                # US 1, US-1
-                us_match = re.search(r'\bUS[-\s]?(\d+)\b', text)
+                    return "I", i_match.group(2)
+                # US: US 1, US-1
+                us_match = re.search(r'\b(US|U\.?S\.?)\s*[-]?\s*(\d+)\b', text)
                 if us_match:
-                    return "US", us_match.group(1)
-                # MA 9, Route 9, Rte 9
-                ma_match = re.search(r'\b(MA|ROUTE|RTE)[-\s]?(\d+[A-Z]?)\b', text)
+                    return "US", us_match.group(2)
+                # MA/State: MA 9, ROUTE 9, RT 9, RTE 9, MASSACHUSETTS TURNPIKE (special)
+                ma_match = re.search(r'\b(MA|ROUTE|RT|RTE|STATE)\s*[-]?\s*(\d+[A-Z]?)\b', text)
                 if ma_match:
                     return "MA", ma_match.group(2)
+                # Special: MASSACHUSETTS TURNPIKE -> I-90
+                if "TURNPIKE" in text and "MASSACHUSETTS" in text:
+                    return "I", "90"
                 return None, None
 
             gdf[["ROUTE_TYPE", "ROUTE_NUM"]] = gdf["FULLNAME"].apply(
                 lambda x: pd.Series(extract_route(x))
             )
 
-            # Clean name for tooltip
+            # Clean name
             gdf["ROAD_NAME"] = (
                 gdf["FULLNAME"]
                 .str.replace(r"\s+(E|W|N|S|East|West|North|South)$", "", regex=True)
@@ -1321,45 +1327,65 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 layer_name="Major Highways",
                 style_function=highway_style,
                 info_mode="on_hover",
-                fields=["ROAD_NAME", "ROAD_TYPE"],
-                aliases=["Highway", "Type"],
+                fields=["ROAD_NAME", "ROAD_TYPE", "ROUTE_TYPE", "ROUTE_NUM"],
+                aliases=["Highway", "Type", "Route Type", "Route #"],
             )
 
-            # === ADD ROUTE SHIELDS ===
+            # === ADD ROUTE SHIELDS (MULTIPLE PER ROUTE) ===
             shield_group = folium.FeatureGroup(name="Route Shields", show=True)
-            seen_routes = set()
+            route_shields = {}  # Track points per route to avoid duplicates
 
-            for _, row in gdf.iterrows():
+            matched_routes = []  # For debug
+
+            for idx, row in gdf.iterrows():
                 if not row["ROUTE_TYPE"] or not row["ROUTE_NUM"]:
                     continue
+
                 route_key = f"{row['ROUTE_TYPE']}-{row['ROUTE_NUM']}"
-                if route_key in seen_routes:
-                    continue
-                seen_routes.add(route_key)
+                matched_routes.append(f"{route_key}: {row['FULLNAME'][:50]}...")
 
-                # Get centroid of line
+                # Sample points along the line (every ~5km)
                 line = row.geometry
-                if line.is_empty or not hasattr(line, 'centroid'):
-                    continue
-                centroid = line.centroid
-                lat, lon = centroid.y, centroid.x
+                if isinstance(line, LineString) and not line.is_empty:
+                    length = line.length
+                    num_points = max(1, int(length / 5000))  # ~5km spacing
+                    for i in range(num_points + 1):
+                        fraction = i / num_points if num_points > 0 else 0.5
+                        point = line.interpolate(fraction * length)
+                        lat, lon = point.y, point.x
 
-                # Create shield
-                svg = get_shield_svg(row["ROUTE_TYPE"], row["ROUTE_NUM"])
-                icon = DivIcon(
-                    icon_size=(36, 36),
-                    icon_anchor=(18, 18),
-                    html=f'<div style="transform: translate(-50%, -50%);">{svg}</div>'
-                )
+                        point_key = (round(lat, 4), round(lon, 4))
+                        if point_key in route_shields.get(route_key, []):
+                            continue  # Skip duplicate point
 
-                marker = folium.Marker(
-                    location=[lat, lon],
-                    icon=icon,
-                    tooltip=f"{row['ROUTE_TYPE']} {row['ROUTE_NUM']}"
-                )
-                marker.add_to(shield_group)
+                        if route_key not in route_shields:
+                            route_shields[route_key] = []
+                        route_shields[route_key].append(point_key)
+
+                        # Create shield icon
+                        shield_url = get_shield_svg(row["ROUTE_TYPE"], row["ROUTE_NUM"])
+                        icon = folium.CustomIcon(
+                            shield_url,
+                            icon_size=(36, 36),
+                            icon_anchor=(18, 18)
+                        )
+
+                        folium.Marker(
+                            location=[lat, lon],
+                            icon=icon,
+                            tooltip=f"{row['ROUTE_TYPE']}-{row['ROUTE_NUM']}",
+                            popup=f"Route {row['ROUTE_TYPE']}-{row['ROUTE_NUM']}<br>Full Name: {row['ROAD_NAME']}",
+                        ).add_to(shield_group)
 
             shield_group.add_to(m.get_root())
+
+            # Debug: Show matched routes in sidebar/expander
+            with st.expander("Debug: Matched Routes (for Highways mode)"):
+                st.write("Extracted routes from ma_major_roads.geojson:")
+                for route in matched_routes[:20]:  # First 20
+                    st.write(route)
+                if not matched_routes:
+                    st.warning("No routes matched! Check FULLNAME column in ma_major_roads.geojson for formats like 'I 90' or 'ROUTE 9'.")
 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")

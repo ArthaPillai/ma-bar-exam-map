@@ -340,7 +340,7 @@ view_mode = st.sidebar.radio(
 # ---------------------------------------------------------
 title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
 st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
-st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \-plot\nHover over ZIPs. Hover highways for details.")
+st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Hover highways for details.")
 
 # ---------------------------------------------------------
 # Load Examinee Data
@@ -381,7 +381,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         draw_control=False,
         measure_control=False,
         scroll_wheel_zoom=True,
-        tiles="OpenStreetMap"  # Matches default
+        tiles="OpenStreetMap"
     )
 
     # Color scale
@@ -545,46 +545,22 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
     m_leaf.to_streamlit(width=1500, height=700)
 
 # ---------------------------------------------------------
-# DOWNLOAD: HTML (100% IDENTICAL)
+# DOWNLOAD: HTML ONLY (100% IDENTICAL)
 # ---------------------------------------------------------
 st.markdown("---")
-col1, col2 = st.columns(2)
+if st.button("Request Map as HTML"):
+    with st.spinner("Generating HTML..."):
+        m_export = build_leafmap(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
+        html_str = m_export.to_html()
+        html_bytes = html_str.encode('utf-8')
 
-with col1:
-    if st.button("Download Map as HTML (Identical)"):
-        with st.spinner("Generating HTML..."):
-            m_export = build_leafmap(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
-            html_str = m_export.to_html()
-            html_bytes = html_str.encode('utf-8')
+        filename = f"ma_bar_exam_{selected_layer.lower().replace(' ', '_')}_{view_mode.lower().replace(' ', '_').replace('(', '').replace(')', '')}.html"
 
-            filename = f"ma_bar_exam_{selected_layer.lower().replace(' ', '_')}_{view_mode.lower().replace(' ', '_').replace('(', '').replace(')', '')}.html"
-
-            st.download_button(
-                label="Download HTML",
-                data=html_bytes,
-                file_name=filename,
-                mime="text/html"
-            )
-            st.success("HTML ready! Looks **exactly** like above.")
-
-with col2:
-    if st.button("Download Map as PNG (Printable)"):
-        with st.spinner("Capturing screenshot..."):
-            try:
-                png_bytes = m_leaf.to_png()
-                png_filename = filename.replace(".html", ".png")
-                st.download_button(
-                    label="Download PNG",
-                    data=png_bytes,
-                    file_name=png_filename,
-                    mime="image/png"
-                )
-                st.image(png_bytes, caption="Preview (full res in download)")
-            except Exception as e:
-                st.error(f"PNG export failed: {e}")
-                st.info("Try HTML export instead.")
-
-# ---------------------------------------------------------
-# Footer
-# ---------------------------------------------------------
-st.caption("Map exports are interactive and preserve all layers, tooltips, and zoom behavior.")
+        st.download_button(
+            label="Download HTML File",
+            data=html_bytes,
+            file_name=filename,
+            mime="text/html"
+        )
+        st.success("HTML ready!")
+        st.info("Open in Browser. Works offline (except map tiles).")

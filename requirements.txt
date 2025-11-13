@@ -1,8 +1,7 @@
 streamlit
 pandas
 geopandas
-folium
+leafmap==0.38.0
 branca
 requests
-streamlit-folium
 numpy

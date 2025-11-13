@@ -932,7 +932,7 @@ def build_map(
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # HIGHWAY LAYER – NO CALLBACK FUNCTIONS → JSON‑serialisable
+    # HIGHWAY LAYER – FIXED: Use fields/aliases instead of tooltip kwarg
     # ------------------------
     elif highway_mode:
         try:
@@ -950,21 +950,8 @@ def build_map(
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(road_type_map)
             gdf["ROAD_NAME"] = gdf["FULLNAME"]
 
-            # ---- Build tooltip HTML directly in the GeoJSON ----
-            def make_tooltip(row):
-                return (
-                    f"<strong>Road Name:</strong> {row['ROAD_NAME'] or 'N/A'}<br>"
-                    f"<strong>Road Type:</strong> {row['ROAD_TYPE'] or 'N/A'}"
-                )
-
-            gdf["tooltip"] = gdf.apply(make_tooltip, axis=1)
-
-            # Convert to plain dict (no pandas objects)
+            # Convert to GeoJSON
             highways_geojson = json.loads(gdf.to_json())
-
-            # Add the tooltip as a property that Folium understands
-            for feat in highways_geojson["features"]:
-                feat["properties"]["tooltip"] = feat["properties"].pop("tooltip")
 
             # ---- Style function (pure dict) ----
             def highway_style(feature):
@@ -972,13 +959,14 @@ def build_map(
                 color = "#0047AB" if ftype == "Primary Road" else "#008000"  # green for Major Road
                 return {"color": color, "weight": 4, "opacity": 0.9}
 
-            # ---- Add the layer ----
+            # ---- Add the layer (no 'tooltip' kwarg to avoid conflict) ----
             m.add_geojson(
                 highways_geojson,
                 layer_name="Major Roads",
                 style_function=highway_style,
-                tooltip="tooltip",               # tells leafmap to use the pre‑computed HTML
                 info_mode="on_hover on_click",   # both hover and click
+                fields=["ROAD_NAME", "ROAD_TYPE"],  # use these properties for tooltip
+                aliases=["Road Name", "Road Type"],  # friendly labels
             )
 
         except Exception as e:
@@ -995,4 +983,4 @@ highway_mode = view_mode == "Greater Boston (Highways)"
 
 with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
     m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
-    m.to_streamlit(width=1500, height=800)
+    m.to_streamlit(width=1500, height=700)

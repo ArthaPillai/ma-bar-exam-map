@@ -718,7 +718,6 @@
 
 #version 4
 
-# app.py
 import streamlit as st
 import pandas as pd
 import requests
@@ -800,12 +799,8 @@ geojson_data = load_geojson()
 # Build Map
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-    # Set view for Greater Boston vs State-wide
-    if highway_mode or mbta_mode:
-        # Focus on Greater Boston
-        m = leafmap.Map(center=[42.36, -71.05], zoom=10, locate_control=False, draw_control=False, measure_control=False)
-    else:
-        m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
+    # Base map (center doesn’t matter much; we’ll auto-fit later)
+    m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
 
     # Color scale
     min_val = agg_df["count"].min()
@@ -830,7 +825,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             "fillOpacity": 0.7,
         }
 
-    # Add ZIP polygons
+    # Enrich ZIP polygons
     for feature in geojson["features"]:
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         if z in value_dict:
@@ -849,6 +844,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 "Examinees": 0
             })
 
+    # Add shaded ZIP layer
     m.add_geojson(
         geojson,
         style_function=style_function,
@@ -885,20 +881,26 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 color = "#0047AB" if rtype == "Primary Road" else "#228B22"  # Blue for highways, green for main roads
                 return {"color": color, "weight": 3, "opacity": 0.9}
 
+            # ✅ Tooltip label fixed here
             m.add_geojson(
                 highways,
                 layer_name="Major Roads",
                 style_function=highway_style,
                 info_mode="on_hover",
                 fields=["FULLNAME", "Road Type"],
-                aliases=["Road Name", "Category"],
+                aliases=["Road Name", "Category"],  # Fixed label
             )
+
+            # ✅ Auto-fit bounds to roads
+            if not gdf.empty:
+                bounds = gdf.total_bounds  # [minx, miny, maxx, maxy]
+                m.zoom_to_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
 
     # ------------------------
-    # Add MBTA Layer (unchanged)
+    # Add MBTA Layer (unchanged except auto-fit)
     # ------------------------
     elif mbta_mode:
         line_colors = {
@@ -948,8 +950,29 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 aliases=["Station", "Lines"],
             )
 
+            # ✅ Auto-fit bounds to MBTA stations if available
+            if stops and "features" in stops and len(stops["features"]) > 0:
+                coords = []
+                for f in stops["features"]:
+                    geom = f.get("geometry", {})
+                    if geom.get("type") == "Point":
+                        coords.append(geom["coordinates"])
+                if coords:
+                    xs, ys = zip(*coords)
+                    m.zoom_to_bounds([[min(ys), min(xs)], [max(ys), max(xs)]])
+
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
+
+    else:
+        # ✅ Auto-fit bounds for state-wide ZIPs
+        try:
+            # Convert GeoJSON to GeoDataFrame temporarily for bounds
+            gdf_zip = gpd.GeoDataFrame.from_features(geojson["features"], crs="EPSG:4326")
+            bounds = gdf_zip.total_bounds
+            m.zoom_to_bounds([[bounds[1], bounds[0]], [bounds[3], bounds[2]]])
+        except Exception as e:
+            st.warning(f"Auto-fit failed: {e}")
 
     m.add_layer_control()
     return m
@@ -963,6 +986,7 @@ highway_mode = (view_mode == "Greater Boston (Highways)")
 with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
     m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
     m.to_streamlit(width=1500, height=700)
+
 
 
 

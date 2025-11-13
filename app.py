@@ -726,76 +726,85 @@ import leafmap.foliumap as leafmap
 import branca.colormap as cm
 import json
 import geopandas as gpd
+
 # ---------------------------------------------------------
 # Streamlit Page Setup
 # ---------------------------------------------------------
 st.set_page_config(page_title="Massachusetts Bar Examinee Map", layout="wide")
+
 # ---------------------------------------------------------
 # MBTA subway-served ZIP codes
 # ---------------------------------------------------------
 MBTA_ZIPS = {
-    "02108", "02109", "02110", "02111", "02113", "02114", "02115", "02116", "02118", "02119", "02120", "02121",
-    "02122", "02124", "02125", "02126", "02127", "02128", "02129", "02130", "02131", "02132", "02134", "02135",
-    "02136", "02138", "02139", "02140", "02141", "02142", "02143", "02144", "02145", "02148", "02149", "02151",
-    "02152", "02155", "02163", "02169", "02171", "02176", "02180", "02184", "02186", "02188", "02190", "02191",
-    "02215", "02445", "02446", "02453", "02458", "02459", "02467", "02472"
+    "02108", "02109", "02110", "02111", "02113", "02114", "02115", "02116", "02118", "02119", "02120", "02121",
+    "02122", "02124", "02125", "02126", "02127", "02128", "02129", "02130", "02131", "02132", "02134", "02135",
+    "02136", "02138", "02139", "02140", "02141", "02142", "02143", "02144", "02145", "02148", "02149", "02151",
+    "02152", "02155", "02163", "02169", "02171", "02176", "02180", "02184", "02186", "02188", "02190", "02191",
+    "02215", "02445", "02446", "02453", "02458", "02459", "02467", "02472"
 }
+
 # ---------------------------------------------------------
 # Sidebar Controls
 # ---------------------------------------------------------
 layer_options = {
-    "All years": "map_data_all.csv",
-    "2025": "map_data_2025.csv",
-    "2024": "map_data_2024.csv",
-    "2023": "map_data_2023.csv",
+    "All years": "map_data_all.csv",
+    "2025": "map_data_2025.csv",
+    "2024": "map_data_2024.csv",
+    "2023": "map_data_2023.csv",
 }
 selected_layer = st.sidebar.selectbox("Select data layer", options=list(layer_options.keys()), index=0)
 view_mode = st.sidebar.radio(
-    "Map view",
-    ["State-wide", "Greater Boston (MBTA subway)", "Greater Boston (Highways)"],
-    index=0
+    "Map view",
+    ["State-wide", "Greater Boston (MBTA subway)", "Greater Boston (Highways)"],
+    index=0
 )
+
 # ---------------------------------------------------------
 # Dynamic Title
 # ---------------------------------------------------------
 title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
 st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
-st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Click stations/highways for details.")
+st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Click stations or hover highways for details.")
+
 # ---------------------------------------------------------
 # Load Examinee Data
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_examinee_data(csv_name: str) -> pd.DataFrame:
-    df = pd.read_csv(csv_name, dtype={"zip": str})
-    df["zip"] = df["zip"].str.zfill(5)
-    agg = df.groupby("zip").agg(
-        area=("area", lambda x: ", ".join(sorted(set(x)))),
-        sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
-        count=("examinees", "sum"),
-    ).reset_index()
-    return agg
+    df = pd.read_csv(csv_name, dtype={"zip": str})
+    df["zip"] = df["zip"].str.zfill(5)
+    agg = df.groupby("zip").agg(
+        area=("area", lambda x: ", ".join(sorted(set(x)))),
+        sub_area=("sub_area", lambda x: ", ".join(sorted(set(x)))),
+        count=("examinees", "sum"),
+    ).reset_index()
+    return agg
+
 agg = load_examinee_data(layer_options[selected_layer])
+
 # ---------------------------------------------------------
 # Load MA ZIP GeoJSON
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_geojson():
-    url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
-    r = requests.get(url)
-    r.raise_for_status()
-    return r.json()
+    url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
+    r = requests.get(url)
+    r.raise_for_status()
+    return r.json()
+
 geojson_data = load_geojson()
+
 # ---------------------------------------------------------
 # Build Map
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-    # Set initial view: Greater Boston for MBTA or Highways, State-wide otherwise
+    # Set initial view: Greater Boston (zoom 11) for MBTA or Highways, State-wide (zoom 8) otherwise
     if mbta_mode or highway_mode:
         m = leafmap.Map(center=[42.3601, -71.0589], zoom=11, locate_control=False, draw_control=False, measure_control=False)
     else:
         m = leafmap.Map(center=[42.3601, -71.0589], zoom=8, locate_control=False, draw_control=False, measure_control=False)
 
-    # Color scale for ZIP examinees
+    # Color scale for examinees
     min_val = agg_df["count"].min()
     max_val = agg_df["count"].max()
     if max_val == min_val:
@@ -803,6 +812,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
     colormap.caption = "Number of Examinees"
     colormap.add_to(m)
+
     value_dict = agg_df.set_index("zip").to_dict(orient="index")
 
     def style_function(feature):
@@ -845,7 +855,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     )
 
     # ------------------------
-    # Add MBTA lines & stations (unchanged)
+    # Add MBTA Lines & Stations
     # ------------------------
     if mbta_mode:
         line_colors = {
@@ -854,6 +864,8 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             "silver": "#8D8D8D", "sl1": "#8D8D8D", "sl2": "#8D8D8D", "sl4": "#8D8D8D", "sl5": "#8D8D8D",
             "mattapan": "#DA291C",
         }
+
+        # LINES
         try:
             with open("routes.geojson", "r", encoding="utf-8") as f:
                 routes = json.load(f)
@@ -870,9 +882,11 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
         except Exception as e:
             st.warning(f"MBTA lines failed: {e}")
 
+        # STATIONS
         try:
             with open("stops.geojson", "r", encoding="utf-8") as f:
                 stops = json.load(f)
+
             def station_style(feature):
                 lines = feature["properties"].get("lines", [])
                 primary = next((l for l in lines if l in line_colors), "silver")
@@ -883,6 +897,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                     "radius": 6,
                     "fillOpacity": 0.9,
                 }
+
             m.add_geojson(
                 stops,
                 layer_name="MBTA Stations",
@@ -900,22 +915,30 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
     elif highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
+
+            # Reproject if needed
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Filter to major roads only
+            # Keep only primary + secondary roads
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
 
-            # Create user-friendly type labels
+            # Map to user-friendly labels
             type_map = {
                 "Primary Road": "Interstate / Major Highway",
                 "Secondary Road": "State Route / Arterial"
             }
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(type_map)
 
-            # Clean up road names (optional: strip "Rd", "St", etc. if needed)
-            gdf["ROAD_NAME"] = gdf["FULLNAME"].fillna("Unnamed Road")
+            # Clean road names: remove trailing direction, keep core name
+            gdf["ROAD_NAME"] = (
+                gdf["FULLNAME"]
+                .str.replace(r"\s+(E|W|N|S|East|West|North|South)$", "", regex=True)
+                .str.strip()
+                .fillna("Unnamed Road")
+            )
 
+            # Convert to GeoJSON
             highways = json.loads(gdf.to_json())
 
             def highway_style(feature):
@@ -936,11 +959,13 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
 
     m.add_layer_control()
     return m
+
 # ---------------------------------------------------------
-# Render
+# Render Map
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 highway_mode = (view_mode == "Greater Boston (Highways)")
+
 with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
-    m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
-    m.to_streamlit(width=1500, height=800)
+    m = build_map(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode)
+    m.to_streamlit(width=1500, height=700)

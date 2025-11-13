@@ -726,6 +726,8 @@ import leafmap.foliumap as leafmap
 import branca.colormap as cm
 import json
 import geopandas as gpd
+from shapely.geometry import shape
+import numpy as np
 
 # ---------------------------------------------------------
 # Streamlit Page Setup
@@ -764,7 +766,7 @@ view_mode = st.sidebar.radio(
 # ---------------------------------------------------------
 title_suffix = selected_layer if selected_layer == "All years" else f"July {selected_layer}"
 st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
-st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Click stations or hover highways for details.")
+st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Hover highways for details.")
 
 # ---------------------------------------------------------
 # Load Examinee Data
@@ -798,19 +800,10 @@ geojson_data = load_geojson()
 # Build Map
 # ---------------------------------------------------------
 def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, highway_mode: bool = False) -> leafmap.Map:
-    # === ZOOM & CENTER SETTINGS ===
-    if mbta_mode or highway_mode:
-        # Greater Boston: centered on Boston, zoom 10.5 → perfect fit
-        center = [42.3601, -71.0589]
-        zoom = 10.5
-    else:
-        # State-wide: shows all of MA
-        center = [42.3601, -71.0589]
-        zoom = 8
-
+    # Start map with default view
     m = leafmap.Map(
-        center=center,
-        zoom=zoom,
+        center=[42.3601, -71.0589],
+        zoom=8,
         locate_control=False,
         draw_control=False,
         measure_control=False,
@@ -828,21 +821,19 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
 
     value_dict = agg_df.set_index("zip").to_dict(orient="index")
 
-    def style_function(feature):
-        zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
-        if (mbta_mode or highway_mode) and zip_code not in MBTA_ZIPS:
-            return {"fillColor": "transparent", "color": "transparent", "weight": 0}
-        val = value_dict.get(zip_code, {}).get("count", 0)
-        return {
-            "fillColor": colormap(val) if val > 0 else "#d9d9d9",
-            "color": "black",
-            "weight": 0.3,
-            "fillOpacity": 0.7,
-        }
+    # === Filter and prepare visible ZIPs ===
+    visible_features = []
+    bounds = None
 
-    # Update GeoJSON properties
     for feature in geojson["features"]:
         z = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
+        is_mbta_area = z in MBTA_ZIPS
+
+        # In Greater Boston modes: only show MBTA ZIPs
+        if (mbta_mode or highway_mode) and not is_mbta_area:
+            continue  # Skip non-MBTA ZIPs
+
+        # Update properties
         if z in value_dict:
             i = value_dict[z]
             feature["properties"].update({
@@ -859,13 +850,52 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 "Examinees": 0
             })
 
+        visible_features.append(feature)
+
+        # Compute bounds for auto-fit
+        geom = shape(feature["geometry"])
+        if geom.is_valid and not geom.is_empty:
+            minx, miny, maxx, maxy = geom.bounds
+            if bounds is None:
+                bounds = [minx, miny, maxx, maxy]
+            else:
+                bounds = [
+                    min(bounds[0], minx),
+                    min(bounds[1], miny),
+                    max(bounds[2], maxx),
+                    max(bounds[3], maxy)
+                ]
+
+    # Define style function
+    def style_function(feature):
+        zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
+        val = value_dict.get(zip_code, {}).get("count", 0)
+        return {
+            "fillColor": colormap(val) if val > 0 else "#d9d9d9",
+            "color": "black",
+            "weight": 0.3,
+            "fillOpacity": 0.7,
+        }
+
+    # Add only visible ZIPs
+    visible_geojson = {"type": "FeatureCollection", "features": visible_features}
     m.add_geojson(
-        geojson,
+        visible_geojson,
         style_function=style_function,
         info_mode="on_hover",
         fields=["ZIP Code", "Area", "Sub_Area", "Examinees"],
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
+
+    # === Auto-fit to Greater Boston ZIPs on first load ===
+    if (mbta_mode or highway_mode) and bounds:
+        # Add small padding
+        padding = 0.01
+        padded_bounds = [
+            [bounds[1] - padding, bounds[0] - padding],
+            [bounds[3] + padding, bounds[2] + padding]
+        ]
+        m.fit_bounds(padded_bounds)
 
     # ------------------------
     # MBTA Lines & Stations
@@ -878,7 +908,6 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             "mattapan": "#DA291C",
         }
 
-        # LINES
         try:
             with open("routes.geojson", "r", encoding="utf-8") as f:
                 routes = json.load(f)
@@ -895,7 +924,6 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
         except Exception as e:
             st.warning(f"MBTA lines failed: {e}")
 
-        # STATIONS
         try:
             with open("stops.geojson", "r", encoding="utf-8") as f:
                 stops = json.load(f)
@@ -923,7 +951,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
             st.warning(f"MBTA stations failed: {e}")
 
     # ------------------------
-    # Highway Layer (Fixed Zoom + Green Secondary)
+    # Highway Layer (Green Secondary, Auto-Fit)
     # ------------------------
     elif highway_mode:
         try:
@@ -939,8 +967,6 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
                 "Secondary Road": "State Route / Arterial"
             }
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(type_map)
-
-            # Clean name: remove trailing direction
             gdf["ROAD_NAME"] = (
                 gdf["FULLNAME"]
                 .str.replace(r"\s+(E|W|N|S|East|West|North|South)$", "", regex=True)
@@ -952,7 +978,7 @@ def build_map(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, high
 
             def highway_style(feature):
                 ftype = feature["properties"].get("FEATURE_TY", "")
-                color = "#0047AB" if ftype == "Primary Road" else "#00843D"  # Green
+                color = "#0047AB" if ftype == "Primary Road" else "#00843D"  # GREEN
                 return {"color": color, "weight": 4, "opacity": 0.9}
 
             m.add_geojson(

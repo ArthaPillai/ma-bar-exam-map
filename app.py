@@ -946,9 +946,7 @@ title_suffix = selected_layer if selected_layer == "All years" else f"July {sele
 st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
 st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Hover highways for details.")
 
-# ---------------------------------------------------------
-# Load Data
-# ---------------------------------------------------------
+# Load Data (unchanged - keeping your working code)
 @st.cache_data(show_spinner=False)
 def load_examinee_data(csv_name: str) -> pd.DataFrame:
     df = pd.read_csv(csv_name, dtype={"zip": str})
@@ -1056,24 +1054,26 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
 
-    # === IMPROVED Route 128 / I-95 Highlight ===
+    # === STRONGER Route 128 / I-95 Highlight ===
     if view_mode == "Outside Route 128 + Springfield Option":
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
 
-            # Broad search for Route 128 and I-95 segments
-            route128 = gdf[
+            # Very broad filter for I-95 and Route 128
+            mask = (
                 gdf["FULLNAME"].str.contains("128", na=False, case=False) |
-                gdf["FULLNAME"].str.contains("I-?95", na=False, case=False) |
+                gdf["FULLNAME"].str.contains("I-95", na=False, case=False) |
+                gdf["FULLNAME"].str.contains("Interstate 95", na=False, case=False) |
                 gdf["FULLNAME"].str.contains("Yankee Division", na=False, case=False)
-            ].copy()
+            )
+            route128 = gdf[mask].copy()
 
             if not route128.empty:
                 folium.GeoJson(
                     json.loads(route128.to_json()),
-                    style_function=lambda x: {"color": "#0066FF", "weight": 7, "opacity": 0.95},
+                    style_function=lambda x: {"color": "#0066FF", "weight": 9, "opacity": 0.95},  # Thicker & brighter blue
                     name="Route 128 / I-95"
                 ).add_to(m)
                 st.success(f"✅ Route 128 / I-95 highlighted ({len(route128)} segments)")
@@ -1087,8 +1087,9 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
                     popup="Springfield - Proposed Alternative Venue", 
                     tooltip="Springfield (Proposed Site)")
 
-    # MBTA
+    # MBTA & Highways (unchanged)
     if mbta_mode:
+        # ... your original MBTA code ...
         line_colors = {
             "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
             "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
@@ -1135,8 +1136,8 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
-    # Highways
     elif highway_mode:
+        # Your original highway code
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
@@ -1170,7 +1171,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
     return m
 
 # ---------------------------------------------------------
-# Render & Summary
+# Render & Summary (same as before)
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 highway_mode = (view_mode == "Greater Boston (Highways)")
@@ -1216,4 +1217,4 @@ with col2:
             st.success("HTML ready!")
             st.info("Open in Browser. Works offline (except map tiles).")
 
-st.caption("Route 128 / I-95 highlighted in blue in the new view.")
+st.caption("Route 128 / I-95 highlighted in bright blue in the new view.")

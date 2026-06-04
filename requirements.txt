@@ -6,3 +6,4 @@ branca
 requests
 numpy
 setuptools
+folium

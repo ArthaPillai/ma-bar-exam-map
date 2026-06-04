@@ -800,6 +800,19 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
+
+            st.write("Road columns:", list(gdf.columns))
+
+            if "FULLNAME" in gdf.columns:
+                st.write(
+                    sorted(
+                        gdf["FULLNAME"]
+                        .dropna()
+                        .astype(str)
+                        .unique()
+                    )
+                )
+        
             gdf = gdf[gdf["FEATURE_TY"].isin(["Primary Road", "Secondary Road"])]
             type_map = {"Primary Road": "Interstate / Major Highway", "Secondary Road": "State Route / Arterial"}
             gdf["ROAD_TYPE"] = gdf["FEATURE_TY"].map(type_map)
@@ -884,14 +897,6 @@ with col2:
             st.info("Open in Browser. Works offline (except map tiles).")
 
 st.caption("Updated to support evaluation of Springfield as alternative venue.")
-st.write(
-    sorted(
-        gdf["FULLNAME"]
-        .dropna()
-        .astype(str)
-        .unique()
-    )
-)
 
 
 

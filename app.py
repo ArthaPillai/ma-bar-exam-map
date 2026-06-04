@@ -898,7 +898,7 @@ import branca.colormap as cm
 import json
 import geopandas as gpd
 from shapely.geometry import shape
-import numpy as np
+import folium  # Added for circle and Route 128
 from io import BytesIO
 
 # ---------------------------------------------------------
@@ -1065,9 +1065,8 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         padded_bounds = [[bounds[1] - padding, bounds[0] - padding], [bounds[3] + padding, bounds[2] + padding]]
         m.fit_bounds(padded_bounds)
 
-    # === MBTA & HIGHWAYS (unchanged) ===
+    # MBTA
     if mbta_mode:
-        # [Your original MBTA code - kept exactly as before]
         line_colors = {
             "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
             "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
@@ -1114,8 +1113,8 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
+    # Highways
     elif highway_mode:
-        # [Your original highway code - kept exactly as before]
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
@@ -1147,35 +1146,34 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
 
     # === SPECIAL LAYERS FOR "Outside Route 128 + Springfield Option" ===
     if view_mode == "Outside Route 128 + Springfield Option":
-        # Springfield + Drive Radius
+        # Springfield Marker
         m.add_marker([42.1015, -72.5898], 
                     popup="Springfield - Proposed Alternative Venue", 
                     tooltip="Springfield (Proposed Site)")
-        
-        # 60-minute drive radius (~65 km)
-        m.add_circle(
-            center=[42.1015, -72.5898],
-            radius=65000,
+
+        # 60-minute drive radius using folium.Circle
+        folium.Circle(
+            location=[42.1015, -72.5898],
+            radius=65000,           # ~40-60 minutes drive
             color="#FF6600",
             fill=True,
-            fill_opacity=0.12,
+            fillOpacity=0.12,
             weight=2.5,
             tooltip="≈ 60-minute drive radius from Springfield"
-        )
+        ).add_to(m)
 
-        # Highlight Route 128 (thick line)
+        # Highlight Route 128
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
-            # Filter for Route 128
             route128 = gdf[gdf["FULLNAME"].str.contains("128", na=False, case=False)]
             if not route128.empty:
-                m.add_geojson(
+                folium.GeoJson(
                     json.loads(route128.to_json()),
-                    style={"color": "#FF8800", "weight": 6, "opacity": 0.85},
-                    layer_name="Route 128"
-                )
+                    style_function=lambda x: {"color": "#FF8800", "weight": 6, "opacity": 0.85},
+                    name="Route 128"
+                ).add_to(m)
         except Exception as e:
             st.warning("Could not load Route 128 highlight.")
 

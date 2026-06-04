@@ -1366,7 +1366,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
 st.markdown("---")
 
 total = agg["count"].sum()
-inside_128 = agg[agg["zip"].isin(MBTA_ZIPS)]["count"].sum()
+inside_128 = agg[agg["zip"].isin(ROUTE128_CORE_ZIPS)]["count"].sum()
 outside_128 = total - inside_128
 
 col1, col2 = st.columns([3, 2])

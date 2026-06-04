@@ -838,11 +838,50 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
 
-    # === Springfield Highlight for New View ===
+    # === OUTSIDE ROUTE 128 VIEW ===
     if view_mode == "Outside Route 128 + Springfield Option":
-        m.add_marker([42.1015, -72.5898], 
-                    popup="Springfield - Proposed Alternative Venue", 
-                    tooltip="Springfield (Proposed Site)")
+    
+        # Springfield marker
+        m.add_marker(
+            [42.1015, -72.5898],
+            popup="Springfield - Proposed Alternative Venue",
+            tooltip="Springfield (Proposed Site)"
+        )
+    
+        # Route 128 / I-95 highlight
+        try:
+            gdf = gpd.read_file("ma_major_roads.geojson")
+    
+            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
+                gdf = gdf.to_crs(epsg=4326)
+    
+            route128 = gdf[
+                gdf["FULLNAME"].fillna("").str.contains(
+                    r"I-\s*95|Yankee Division Hwy|State Rte 128",
+                    case=False,
+                    regex=True
+                )
+            ]
+    
+            if not route128.empty:
+    
+                route128_geojson = json.loads(route128.to_json())
+    
+                m.add_geojson(
+                    route128_geojson,
+                    layer_name="Route 128 / I-95",
+                    style={
+                        "color": "#0057B8",
+                        "weight": 8,
+                        "opacity": 1.0,
+                    },
+                    info_mode=None,
+                )
+    
+        except Exception as e:
+            st.warning(f"Route 128 layer failed: {e}")
+
+    
 
     m.add_layer_control()
     return m

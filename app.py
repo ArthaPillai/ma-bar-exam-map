@@ -947,7 +947,7 @@ st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
 st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Hover highways for details.")
 
 # ---------------------------------------------------------
-# Load Data
+# Load Data (unchanged)
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_examinee_data(csv_name: str) -> pd.DataFrame:
@@ -1048,7 +1048,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
 
     visible_geojson = {"type": "FeatureCollection", "features": visible_features}
 
-    # Add ZIP polygons first
+    # ZIP Polygons
     m.add_geojson(
         visible_geojson,
         style_function=style_function,
@@ -1057,29 +1057,40 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
 
-    # === Route 128 Highlight (drawn AFTER ZIPs so it's on top) ===
+    # === IMPROVED Route 128 Highlight (drawn AFTER ZIPs) ===
     if view_mode == "Outside Route 128 + Springfield Option":
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
                 gdf = gdf.to_crs(epsg=4326)
-            route128 = gdf[gdf["FULLNAME"].str.contains("128", na=False, case=False)]
+            
+            # More robust filter for Route 128
+            route128 = gdf[
+                gdf["FULLNAME"].str.contains("128", na=False, case=False) |
+                gdf["RTTYP"].str.contains("128", na=False) |
+                (gdf["FULLNAME"].str.contains("Yankee Division", na=False))
+            ].copy()
+
             if not route128.empty:
                 folium.GeoJson(
                     json.loads(route128.to_json()),
-                    style_function=lambda x: {"color": "#0066FF", "weight": 8, "opacity": 0.95},  # Bright blue, thick
+                    style_function=lambda x: {"color": "#0066FF", "weight": 8, "opacity": 0.95},
                     name="Route 128"
                 ).add_to(m)
+                st.success("Route 128 highlighted successfully!")
+            else:
+                st.warning("Route 128 not found in road data.")
         except Exception as e:
-            st.warning("Could not load Route 128 highlight.")
+            st.warning(f"Could not load Route 128: {e}")
 
         # Springfield Marker
         m.add_marker([42.1015, -72.5898], 
                     popup="Springfield - Proposed Alternative Venue", 
                     tooltip="Springfield (Proposed Site)")
 
-    # MBTA
+    # MBTA & Highways (unchanged)
     if mbta_mode:
+        # [Your original MBTA code remains the same]
         line_colors = {
             "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
             "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
@@ -1126,8 +1137,8 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
-    # Highways
     elif highway_mode:
+        # [Your original highway code]
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
@@ -1161,7 +1172,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
     return m
 
 # ---------------------------------------------------------
-# Render
+# Render & Summary (unchanged from before)
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 highway_mode = (view_mode == "Greater Boston (Highways)")
@@ -1170,9 +1181,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
     m_leaf = build_leafmap(agg, geojson_data, mbta_mode=mbta_mode, highway_mode=highway_mode, view_mode=view_mode)
     m_leaf.to_streamlit(width=1500, height=700)
 
-# ---------------------------------------------------------
-# Summary + Download
-# ---------------------------------------------------------
+# Summary + Download (same as previous version)
 st.markdown("---")
 
 total = agg["count"].sum()
@@ -1209,4 +1218,4 @@ with col2:
             st.success("HTML ready!")
             st.info("Open in Browser. Works offline (except map tiles).")
 
-st.caption("Route 128 highlighted in blue when using 'Outside Route 128 + Springfield Option' view.")
+st.caption("Route 128 highlighted in blue when using the new view.")

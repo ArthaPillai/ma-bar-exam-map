@@ -1,7 +1,8 @@
 streamlit
 pandas
 geopandas
-leafmap==0.38.0
+leafmap>=0.42.0
 branca
 requests
 numpy
+setuptools

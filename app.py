@@ -959,104 +959,114 @@ MBTA_ZIPS = {
 }
 
 ROUTE128_CORE_ZIPS = {
-    # Boston
-    "02108","02109","02110","02111","02113","02114","02115","02116",
-    "02118","02119","02120","02121","02122","02124","02125","02126",
-    "02127","02128","02129","02130","02131","02132","02134","02135",
-    "02136",
+        # Boston
+        "02108","02109","02110","02111","02113","02114","02115","02116",
+        "02118","02119","02120","02121","02122","02124","02125","02126",
+        "02127","02128","02129","02130","02131","02132","02134","02135",
+        "02136",
 
-    # Cambridge / Somerville
-    "02138","02139","02140","02141","02142","02143","02144","02145",
+        # Cambridge / Somerville
+        "02138","02139","02140","02141","02142","02143","02144","02145",
 
     # Brookline
-    "02445","02446","02467",
+        "02445","02446","02467",
 
     # Newton
-    "02458","02459","02460","02461","02462","02464","02465","02466",
+        "02458","02459","02460","02461","02462","02464","02465","02466",
 
     # Watertown
-    "02472",
+        "02472",
 
     # Belmont
-    "02478",
+        "02478",
 
     # Arlington
-    "02474","02476",
+        "02474","02476",
 
     # Medford
-    "02155",
+        "02155",
 
     # Malden
-    "02148",
+        "02148",
 
     # Everett
-    "02149",
+        "02149",
 
     # Chelsea
-    "02150",
+        "02150",
 
     # Revere
-    "02151",
+        "02151",
 
     # Winthrop
-    "02152",
+        "02152",
 
     # Quincy
-    "02169","02170","02171",
+        "02169","02170","02171",
 
     # Milton
-    "02186",
+        "02186",
 
     # Braintree
-    "02184",
+        "02184",
 
     # Weymouth
-    "02188","02189","02190","02191",
+        "02188","02189","02190","02191",
 
     # Dedham
-    "02026",
+        "02026",
 
     # Needham
-    "02492","02494",
+        "02492","02494",
 
     # Wellesley
-    "02481","02482",
+        "02481","02482",
 
     # Waltham
-    "02451","02452","02453",
+        "02451","02452","02453",
 
     # Lexington
-    "02420","02421",
+        "02420","02421",
 
     # Burlington
-    "01803",
+        "01803",
 
     # Winchester
-    "01890",
+        "01890",
 
     # Woburn
-    "01801",
+        "01801",
 
     # Stoneham
-    "02180",
+        "02180",
 
     # Reading
-    "01867",
+        "01867",
 
     # Wakefield
-    "01880",
+        "01880",
 
     # Lynnfield
-    "01940",
+        "01940",
 
-    # Peabody
-    "01960",
+        # Peabody
+        "01960",
 
-    # Canton
-    "02021",
+        # Canton
+        "02021",
 
-    # Norwood
-    "02062"
+        # Norwood
+        "02062",
+
+        "02210",  # Seaport
+        "02215",  # Fenway / Kenmore
+        "02199",  # Prudential
+        "02368",  # Randolph
+        "02176",  # Melrose
+        "01906",  # Saugus
+        "01905","01902",  # Lynn
+        "01970",  #Salem
+        "01945"   #Marblehead
 }
 
 # ---------------------------------------------------------
@@ -1077,7 +1087,7 @@ view_mode = st.sidebar.radio(
     ["State-wide", 
      "Greater Boston (MBTA subway)", 
      "Greater Boston (Highways)",
-     "Outside Route 128 + Springfield Option"],   # ← NEW
+     "Outside Route 128 + Springfield"],
     index=0
 )
 
@@ -1181,7 +1191,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         zip_code = str(feature["properties"].get("ZCTA5CE10", "")).zfill(5)
         val = value_dict.get(zip_code, {}).get("count", 0)
 
-        if view_mode == "Outside Route 128 + Springfield Option":
+        if view_mode == "Outside Route 128 + Springfield":
             if zip_code in ROUTE128_CORE_ZIPS:
                 return {
                     "fillColor": "#a6d8f0",
@@ -1303,13 +1313,13 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
             st.warning(f"Highway layer failed: {e}")
 
     # === OUTSIDE ROUTE 128 VIEW ===
-    if view_mode == "Outside Route 128 + Springfield Option":
+    if view_mode == "Outside Route 128 + Springfield":
     
         # Springfield marker
         m.add_marker(
             [42.1015, -72.5898],
-            popup="Springfield - Proposed Alternative Venue",
-            tooltip="Springfield (Proposed Site)"
+            popup="Springfield Venue",
+            tooltip="Springfield (Site)"
         )
     
         # Route 128 / I-95 highlight
@@ -1375,11 +1385,10 @@ with col1:
     st.subheader("Summary")
     st.metric("Total Examinees", f"{total:,}")
     
-    if view_mode == "Outside Route 128 + Springfield Option":
+    if view_mode == "Outside Route 128 + Springfield":
         st.metric("Inside Route 128", f"{inside_128:,} ({inside_128/total*100:.1f}%)")
         st.metric("**Outside Route 128**", f"**{outside_128:,}** ({outside_128/total*100:.1f}%)", 
                  delta="Potential Springfield candidates")
-        st.info("**People outside Route 128 (stronger colors) may be willing to drive to Springfield** if Boston venue is limited.")
 
 with col2:
     if st.button("Download Map as HTML"):
@@ -1399,4 +1408,3 @@ with col2:
             st.success("HTML ready!")
             st.info("Open in Browser. Works offline (except map tiles).")
 
-st.caption("Updated to support evaluation of Springfield as alternative venue.")

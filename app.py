@@ -924,7 +924,6 @@
 #             st.success("HTML ready!")
 #             st.info("Open in Browser. Works offline (except map tiles).")
 
-# st.caption("Updated to support evaluation of Springfield as alternative venue.")
 
 
 
@@ -1231,7 +1230,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
 
     # === MBTA LINES & STATIONS ===
     if mbta_mode:
-        # ... (your original MBTA code unchanged) ...
+
         line_colors = {
             "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
             "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
@@ -1280,7 +1279,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
 
     # === HIGHWAYS ===
     elif highway_mode:
-        # ... (your original highway code unchanged) ...
+
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
             if gdf.crs and gdf.crs.to_string() != "EPSG:4326":

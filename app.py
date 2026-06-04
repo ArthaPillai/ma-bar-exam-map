@@ -898,7 +898,7 @@ import branca.colormap as cm
 import json
 import geopandas as gpd
 from shapely.geometry import shape
-import folium  # Added for circle and Route 128
+import folium
 from io import BytesIO
 
 # ---------------------------------------------------------
@@ -947,7 +947,7 @@ st.title(f"Massachusetts Bar Examinee Distribution Map – {title_suffix}")
 st.markdown(f"**View:** *{view_mode}* | **Data:** *{title_suffix}* \nHover over ZIPs. Hover highways for details.")
 
 # ---------------------------------------------------------
-# Load Examinee Data
+# Load Data
 # ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_examinee_data(csv_name: str) -> pd.DataFrame:
@@ -962,9 +962,6 @@ def load_examinee_data(csv_name: str) -> pd.DataFrame:
 
 agg = load_examinee_data(csv_file)
 
-# ---------------------------------------------------------
-# Load MA ZIP GeoJSON
-# ---------------------------------------------------------
 @st.cache_data(show_spinner=False)
 def load_geojson():
     url = "https://raw.githubusercontent.com/OpenDataDE/State-zip-code-GeoJSON/master/ma_massachusetts_zip_codes_geo.min.json"
@@ -990,9 +987,7 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
 
     # Color scale
     min_val = agg_df["count"].min()
-    max_val = agg_df["count"].max()
-    if max_val == min_val:
-        max_val = min_val + 1
+    max_val = agg_df["count"].max() or 1
     colormap = cm.linear.YlOrRd_09.scale(min_val, max_val)
     colormap.caption = "Number of Examinees"
     colormap.add_to(m)
@@ -1052,6 +1047,36 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
             }
 
     visible_geojson = {"type": "FeatureCollection", "features": visible_features}
+
+    # === Add layers in correct order (bottom to top) ===
+    if view_mode == "Outside Route 128 + Springfield Option":
+        # 1. Springfield Radius (bottom)
+        folium.Circle(
+            location=[42.1015, -72.5898],
+            radius=58000,                    # Slightly reduced
+            color="#FF6600",
+            fill=True,
+            fillOpacity=0.08,
+            weight=2,
+            tooltip="≈ 50-60 minute drive radius from Springfield"
+        ).add_to(m)
+
+        # 2. Route 128 (on top of radius, under ZIPs for now)
+        try:
+            gdf = gpd.read_file("ma_major_roads.geojson")
+            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
+                gdf = gdf.to_crs(epsg=4326)
+            route128 = gdf[gdf["FULLNAME"].str.contains("128", na=False, case=False)]
+            if not route128.empty:
+                folium.GeoJson(
+                    json.loads(route128.to_json()),
+                    style_function=lambda x: {"color": "#0066FF", "weight": 7, "opacity": 0.9},  # Blue + thicker
+                    name="Route 128"
+                ).add_to(m)
+        except Exception as e:
+            st.warning("Could not load Route 128.")
+
+    # 3. ZIP Polygons (on top - highest priority for tooltips)
     m.add_geojson(
         visible_geojson,
         style_function=style_function,
@@ -1060,13 +1085,9 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         aliases=["ZIP Code", "Area", "Sub-area", "Examinees"],
     )
 
-    if (mbta_mode or highway_mode) and bounds:
-        padding = 0.01
-        padded_bounds = [[bounds[1] - padding, bounds[0] - padding], [bounds[3] + padding, bounds[2] + padding]]
-        m.fit_bounds(padded_bounds)
-
-    # MBTA
+    # MBTA & Highways
     if mbta_mode:
+        # ... (your original MBTA code) ...
         line_colors = {
             "blue": "#003DA5", "orange": "#ED8B00", "red": "#DA291C", "green": "#00843D",
             "green-b": "#00843D", "green-c": "#00843D", "green-d": "#00843D", "green-e": "#00843D",
@@ -1113,7 +1134,6 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         except Exception as e:
             st.warning(f"MBTA stations failed: {e}")
 
-    # Highways
     elif highway_mode:
         try:
             gdf = gpd.read_file("ma_major_roads.geojson")
@@ -1144,44 +1164,17 @@ def build_leafmap(agg_df: pd.DataFrame, geojson: dict, mbta_mode: bool = False, 
         except Exception as e:
             st.warning(f"Highway layer failed: {e}")
 
-    # === SPECIAL LAYERS FOR "Outside Route 128 + Springfield Option" ===
+    # Springfield Marker (on top)
     if view_mode == "Outside Route 128 + Springfield Option":
-        # Springfield Marker
         m.add_marker([42.1015, -72.5898], 
                     popup="Springfield - Proposed Alternative Venue", 
                     tooltip="Springfield (Proposed Site)")
-
-        # 60-minute drive radius using folium.Circle
-        folium.Circle(
-            location=[42.1015, -72.5898],
-            radius=65000,           # ~40-60 minutes drive
-            color="#FF6600",
-            fill=True,
-            fillOpacity=0.12,
-            weight=2.5,
-            tooltip="≈ 60-minute drive radius from Springfield"
-        ).add_to(m)
-
-        # Highlight Route 128
-        try:
-            gdf = gpd.read_file("ma_major_roads.geojson")
-            if gdf.crs and gdf.crs.to_string() != "EPSG:4326":
-                gdf = gdf.to_crs(epsg=4326)
-            route128 = gdf[gdf["FULLNAME"].str.contains("128", na=False, case=False)]
-            if not route128.empty:
-                folium.GeoJson(
-                    json.loads(route128.to_json()),
-                    style_function=lambda x: {"color": "#FF8800", "weight": 6, "opacity": 0.85},
-                    name="Route 128"
-                ).add_to(m)
-        except Exception as e:
-            st.warning("Could not load Route 128 highlight.")
 
     m.add_layer_control()
     return m
 
 # ---------------------------------------------------------
-# Render in Streamlit
+# Render
 # ---------------------------------------------------------
 mbta_mode = (view_mode == "Greater Boston (MBTA subway)")
 highway_mode = (view_mode == "Greater Boston (Highways)")
@@ -1191,7 +1184,7 @@ with st.spinner(f"Loading {selected_layer} – {view_mode.lower()} map…"):
     m_leaf.to_streamlit(width=1500, height=700)
 
 # ---------------------------------------------------------
-# Summary + Download
+# Summary + Download (unchanged)
 # ---------------------------------------------------------
 st.markdown("---")
 
@@ -1229,4 +1222,4 @@ with col2:
             st.success("HTML ready!")
             st.info("Open in Browser. Works offline (except map tiles).")
 
-st.caption("Route 128 highlighted in orange | Springfield with 60-min drive radius shown in new view.")
+st.caption("Route 128 highlighted in blue | Springfield with drive radius | ZIP tooltips prioritized")
